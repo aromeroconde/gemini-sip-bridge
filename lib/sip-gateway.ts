@@ -48,7 +48,7 @@ export function startSipGateway() {
 
         const remoteInfo = parseSdp(req.body);
 
-        const localIp = '127.0.0.1';
+        const localIp = process.env.SIP_EXTERNAL_IP || '127.0.0.1';
         const localSdp = `v=0
 o=- 123456 123456 IN IP4 ${localIp}
 s=Gemini SIP Gateway

@@ -40,6 +40,7 @@ services:
       DRACHTIO_PORT: "9022"
       DRACHTIO_SECRET: cymru
       BRIDGE_WS_URL: ws://localhost:3001/sip-bridge
+      SIP_EXTERNAL_IP: 5.189.166.241
     deploy:
       mode: replicated
       replicas: 1

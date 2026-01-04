@@ -52,7 +52,7 @@ services:
           memory: 512M
       labels:
         - traefik.enable=true
-        - traefik.http.routers.gemini_bridge.rule=Host(`DOMINIO_AQUI`)
+        - traefik.http.routers.gemini_bridge.rule=Host(`sip.advancedhealth.com.co`)
         - traefik.http.routers.gemini_bridge.service=gemini_bridge
         - traefik.http.routers.gemini_bridge.entrypoints=websecure
         - traefik.http.routers.gemini_bridge.tls.certresolver=letsencryptresolver

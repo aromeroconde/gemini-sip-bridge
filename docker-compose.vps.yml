@@ -11,6 +11,7 @@ services:
     environment:
       DRACHTIO_SECRET: cymru
       DRACHTIO_LOGLEVEL: info
+      DRACHTIO_EXTERNAL_IP: 5.189.166.241
     networks:
       - general_network
     deploy:

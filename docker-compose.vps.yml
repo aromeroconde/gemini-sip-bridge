@@ -4,7 +4,6 @@ services:
   # SIP Server (Drachtio)
   drachtio_server:
     image: drachtio/drachtio-server:latest
-    container_name: drachtio_server
     ports:
       - "5060:5060/udp"
       - "5060:5060/tcp"
@@ -14,14 +13,20 @@ services:
       DRACHTIO_LOGLEVEL: info
     networks:
       - general_network
-    restart: always
+    deploy:
+      mode: replicated
+      replicas: 1
+      placement:
+        constraints:
+          - node.role == manager
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 256M
 
   # Gemini SIP Bridge
   gemini_bridge:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    container_name: gemini_bridge
+    image: gemini-bridge:latest
     networks:
       - general_network
     environment:
@@ -34,16 +39,24 @@ services:
       DRACHTIO_PORT: "9022"
       DRACHTIO_SECRET: cymru
       BRIDGE_WS_URL: ws://localhost:3001/sip-bridge
-    labels:
-      - traefik.enable=true
-      - traefik.http.routers.gemini_bridge.rule=Host(`sip.advancedhealth.com.co`)
-      - traefik.http.routers.gemini_bridge.entrypoints=websecure
-      - traefik.http.routers.gemini_bridge.tls.certresolver=letsencryptresolver
-      - traefik.http.routers.gemini_bridge.tls=true
-      - traefik.http.services.gemini_bridge.loadbalancer.server.port=3001
-    restart: always
-    depends_on:
-      - drachtio_server
+    deploy:
+      mode: replicated
+      replicas: 1
+      placement:
+        constraints:
+          - node.role == manager
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 512M
+      labels:
+        - traefik.enable=true
+        - traefik.http.routers.gemini_bridge.rule=Host(`sip.advancedhealth.com.co`)
+        - traefik.http.routers.gemini_bridge.service=gemini_bridge
+        - traefik.http.routers.gemini_bridge.entrypoints=websecure
+        - traefik.http.routers.gemini_bridge.tls.certresolver=letsencryptresolver
+        - traefik.http.routers.gemini_bridge.tls=true
+        - traefik.http.services.gemini_bridge.loadbalancer.server.port=3001
 
 networks:
   general_network:

@@ -27,7 +27,9 @@ services:
 
   # Gemini SIP Bridge
   gemini_bridge:
-    image: ghcr.io/TU_USUARIO/gemini-sip-bridge:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
     networks:
       - general_network
     environment:

@@ -1,9 +1,8 @@
-version: "3.8"
-
 services:
   # SIP Server (Drachtio)
   drachtio_server:
     image: drachtio/drachtio-server:latest
+    container_name: drachtio_server
     ports:
       - "5060:5060/udp"
       - "5060:5060/tcp"
@@ -13,23 +12,15 @@ services:
       DRACHTIO_LOGLEVEL: info
       DRACHTIO_EXTERNAL_IP: 5.189.166.241
     networks:
-      - general_network
-    deploy:
-      mode: replicated
-      replicas: 1
-      placement:
-        constraints:
-          - node.role == manager
-      resources:
-        limits:
-          cpus: "0.25"
-          memory: 256M
+      - sip_network
+    restart: always
 
   # Gemini SIP Bridge
   gemini_bridge:
     image: gemini-bridge:latest
+    container_name: gemini_bridge
     networks:
-      - general_network
+      - sip_network
     environment:
       NODE_ENV: production
       GOOGLE_API_KEY: ${GOOGLE_API_KEY}
@@ -41,25 +32,10 @@ services:
       DRACHTIO_SECRET: cymru
       BRIDGE_WS_URL: ws://localhost:3001/sip-bridge
       SIP_EXTERNAL_IP: 5.189.166.241
-    deploy:
-      mode: replicated
-      replicas: 1
-      placement:
-        constraints:
-          - node.role == manager
-      resources:
-        limits:
-          cpus: "0.5"
-          memory: 512M
-      labels:
-        - traefik.enable=true
-        - traefik.http.routers.gemini_bridge.rule=Host(`sip.advancedhealth.com.co`)
-        - traefik.http.routers.gemini_bridge.service=gemini_bridge
-        - traefik.http.routers.gemini_bridge.entrypoints=websecure
-        - traefik.http.routers.gemini_bridge.tls.certresolver=letsencryptresolver
-        - traefik.http.routers.gemini_bridge.tls=true
-        - traefik.http.services.gemini_bridge.loadbalancer.server.port=3001
+    restart: always
+    depends_on:
+      - drachtio_server
 
 networks:
-  general_network:
-    external: true
+  sip_network:
+    driver: bridge

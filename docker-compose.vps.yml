@@ -1,41 +1,28 @@
 services:
-  # SIP Server (Drachtio)
+  # SIP Server (Drachtio) - uses host network for correct SIP headers
   drachtio_server:
     image: drachtio/drachtio-server:latest
     container_name: drachtio_server
-    ports:
-      - "5060:5060/udp"
-      - "5060:5060/tcp"
-      - "10000-10050:10000-10050/udp"
+    network_mode: host
     environment:
       DRACHTIO_SECRET: cymru
       DRACHTIO_LOGLEVEL: info
-      DRACHTIO_EXTERNAL_IP: 5.189.166.241
-    networks:
-      - sip_network
     restart: always
 
   # Gemini SIP Bridge
   gemini_bridge:
     image: gemini-bridge:latest
     container_name: gemini_bridge
-    networks:
-      - sip_network
+    network_mode: host
     environment:
       NODE_ENV: production
       GOOGLE_API_KEY: ${GOOGLE_API_KEY}
       GEMINI_MODEL: models/gemini-2.0-flash-exp
       VOICE_NAME: Puck
       VOICE_PROMPT: "Eres QuantumIA, el consultor de IA de élite. Responde de forma profesional, amable y concisa. Habla siempre en español de Colombia."
-      DRACHTIO_HOST: drachtio_server
+      DRACHTIO_HOST: 127.0.0.1
       DRACHTIO_PORT: "9022"
       DRACHTIO_SECRET: cymru
-      BRIDGE_WS_URL: ws://localhost:3001/sip-bridge
+      BRIDGE_WS_URL: ws://127.0.0.1:3001/sip-bridge
       SIP_EXTERNAL_IP: 5.189.166.241
     restart: always
-    depends_on:
-      - drachtio_server
-
-networks:
-  sip_network:
-    driver: bridge

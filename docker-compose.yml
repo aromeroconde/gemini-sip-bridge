@@ -1,0 +1,19 @@
+version: '3.8'
+
+services:
+  drachtio-server:
+    image: drachtio/drachtio-server:latest
+    container_name: drachtio-server
+    ports:
+      - "5060:5060/udp"
+      - "5060:5060/tcp"
+      - "9022:9022"
+    environment:
+      DRACHTIO_SECRET: cymru
+      DRACHTIO_LOGLEVEL: info
+      DRACHTIO_EXTERNAL_IP: host.docker.internal
+    restart: always
+  # Opcional: rtpengine si necesitamos manejo avanzado de media
+  # rtpengine:
+  #   image: ghcr.io/drachtio/rtpengine:latest
+  #   ...

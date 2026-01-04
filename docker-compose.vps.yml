@@ -1,0 +1,68 @@
+version: "3.8"
+
+services:
+  # SIP Server (Drachtio)
+  drachtio_server:
+    image: drachtio/drachtio-server:latest
+    ports:
+      - "5060:5060/udp"
+      - "5060:5060/tcp"
+      # RTP ports for media
+      - "10000-10050:10000-10050/udp"
+    environment:
+      DRACHTIO_SECRET: cymru
+      DRACHTIO_LOGLEVEL: info
+    networks:
+      - general_network
+    deploy:
+      mode: replicated
+      replicas: 1
+      placement:
+        constraints:
+          - node.role == manager
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 256M
+
+  # Gemini SIP Bridge
+  gemini_bridge:
+    image: ghcr.io/TU_USUARIO/gemini-sip-bridge:latest
+    networks:
+      - general_network
+    environment:
+      NODE_ENV: production
+      GOOGLE_API_KEY: ${GOOGLE_API_KEY}
+      GEMINI_MODEL: models/gemini-2.0-flash-exp
+      VOICE_NAME: Puck
+      VOICE_PROMPT: "Eres QuantumIA, el consultor de IA de élite. Responde de forma profesional, amable y concisa. Habla siempre en español de Colombia."
+      DRACHTIO_HOST: drachtio_server
+      DRACHTIO_PORT: "9022"
+      DRACHTIO_SECRET: cymru
+      BRIDGE_WS_URL: ws://localhost:3001/sip-bridge
+    deploy:
+      mode: replicated
+      replicas: 1
+      placement:
+        constraints:
+          - node.role == manager
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 512M
+      labels:
+        - traefik.enable=true
+        - traefik.http.routers.gemini_bridge.rule=Host(`DOMINIO_AQUI`)
+        - traefik.http.routers.gemini_bridge.service=gemini_bridge
+        - traefik.http.routers.gemini_bridge.entrypoints=websecure
+        - traefik.http.routers.gemini_bridge.tls.certresolver=letsencryptresolver
+        - traefik.http.routers.gemini_bridge.tls=true
+        - traefik.http.services.gemini_bridge.loadbalancer.server.port=3001
+        - traefik.http.middlewares.gemini_sslheader.headers.customrequestheaders.X-Forwarded-Proto=https
+        - traefik.http.routers.gemini_bridge.middlewares=gemini_sslheader
+
+networks:
+  traefik_public:
+    external: true
+  general_network:
+    external: true

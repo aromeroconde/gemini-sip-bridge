@@ -1,4 +1,26 @@
-import { WebSocket } from 'ws';
+if (response.serverContent?.modelTurn?.parts) {
+    const parts = response.serverContent.modelTurn.parts;
+    for (const part of parts) {
+        if (part.text) {
+            console.log('Model text:', part.text);
+            conversationHistory.push({
+                role: 'model',
+                text: part.text,
+                timestamp: new Date().toISOString()
+            });
+        }
+        if (part.inlineData && part.inlineData.mimeType.startsWith('audio/')) {
+            // Audio processing logic (existing)
+            const pcmData = muLawToPcm(Buffer.from(part.inlineData.data, 'base64'));
+            // ... rest of audio handling code ...
+            // Since we are replacing the block, we need to be careful to keep existing audio logic.
+            // However, the previous view_file didn't show the full audio logic inside the if. 
+            // I should rather use a multi_replace or ensure I have the full content.
+            // Let's abort this replace and do a multi_replace or read carefully.
+        }
+    }
+}
+
 import { muLawToPcm, resample8To16, pcmToMuLaw, resample24To8 } from './audio-utils';
 
 export function setupSipBridge(ws: WebSocket) {

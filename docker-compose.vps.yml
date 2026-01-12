@@ -23,6 +23,7 @@ services:
       DRACHTIO_HOST: 127.0.0.1
       DRACHTIO_PORT: "9022"
       DRACHTIO_SECRET: cymru
-      BRIDGE_WS_URL: ws://127.0.0.1:3001/sip-bridge
+      BRIDGE_WS_URL: ws://localhost:3001/sip-bridge
       SIP_EXTERNAL_IP: 5.189.166.241
+      WEBHOOK_URL: ${WEBHOOK_URL}
     restart: always

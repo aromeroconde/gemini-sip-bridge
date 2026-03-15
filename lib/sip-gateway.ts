@@ -181,11 +181,22 @@ export async function makeOutboundCall(targetUri: string): Promise<{ success: bo
 
     console.log(`[Outbound] Dialing ${targetUri}...`);
 
+    const sipUser = process.env.SIP_USER;
+    const sipPassword = process.env.SIP_PASSWORD;
+    const sipProxy = process.env.SIP_OUTBOUND_PROXY || 'sip.zadarma.com';
+
+    console.log(`[Outbound] Using proxy: ${sipProxy}, user: ${sipUser}`);
+
     try {
         const dialog = await (srf as any).createUAC(targetUri, {
             localSdp,
+            proxy: `sip:${sipProxy}`,
+            auth: {
+                username: sipUser,
+                password: sipPassword
+            },
+            callingNumber: sipUser,
             headers: {
-                'From': `<sip:gemini@${localIp}>`,
                 'User-Agent': 'Gemini-SIP-Bridge/1.0'
             }
         });

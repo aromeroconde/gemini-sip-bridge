@@ -22,7 +22,7 @@ export function setupSipBridge(ws: WebSocket) {
     const toolsUsed: string[] = [];
 
     const host = 'generativelanguage.googleapis.com';
-    const url = `wss://${host}/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContent?key=${apiKey}`;
+    const url = `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent?key=${apiKey}`;
 
     const connectToGemini = () => {
         console.log(`[Call ${callId}] Connecting to Gemini Multimodal Live API...`);
@@ -33,7 +33,7 @@ export function setupSipBridge(ws: WebSocket) {
 
             const setupMessage: Record<string, any> = {
                 setup: {
-                    model: process.env.GEMINI_MODEL || "models/gemini-2.0-flash-exp",
+                    model: process.env.GEMINI_MODEL || "models/gemini-2.5-flash-native-audio-preview-12-2025",
                     generationConfig: {
                         responseModalities: ["AUDIO"],
                         speechConfig: {

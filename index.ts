@@ -6,7 +6,7 @@ import dotenv from 'dotenv';
 import path from 'path';
 import { setupTwilioBridge } from './lib/twilio-bridge';
 import { setupSipBridge } from './lib/sip-bridge';
-import { startSipGateway } from './lib/sip-gateway';
+import { startSipGateway, makeOutboundCall } from './lib/sip-gateway';
 
 dotenv.config();
 
@@ -38,6 +38,29 @@ app.post('/api/twilio/voice', (req, res) => {
 app.post('/api/twilio/status', (req, res) => {
     console.log('Call Status Change:', req.body?.CallStatus || 'unknown');
     res.sendStatus(200);
+});
+
+// ─── Outbound Call API ──────────────────────────────────────────────────
+app.post('/api/make-call', async (req, res) => {
+    const { target } = req.body;
+
+    if (!target) {
+        return res.status(400).json({ error: 'Missing "target" field (SIP URI or phone number)' });
+    }
+
+    // If target looks like a phone number, wrap it in sip: URI format
+    let sipUri = target;
+    if (/^\+?\d+$/.test(target)) {
+        const sipProxy = process.env.SIP_OUTBOUND_PROXY;
+        if (!sipProxy) {
+            return res.status(400).json({ error: 'SIP_OUTBOUND_PROXY not configured for phone number dialing' });
+        }
+        sipUri = `sip:${target}@${sipProxy}`;
+    }
+
+    console.log(`[API] Initiating outbound call to: ${sipUri}`);
+    const result = await makeOutboundCall(sipUri);
+    res.json(result);
 });
 
 const server = createServer(app);

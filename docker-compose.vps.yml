@@ -26,4 +26,6 @@ services:
       BRIDGE_WS_URL: ws://localhost:3001/sip-bridge
       SIP_EXTERNAL_IP: 5.189.166.241
       WEBHOOK_URL: ${WEBHOOK_URL}
+      REPORT_WEBHOOK_URL: ${REPORT_WEBHOOK_URL}
+      SIP_OUTBOUND_PROXY: ${SIP_OUTBOUND_PROXY}
     restart: always

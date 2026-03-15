@@ -1,27 +1,8 @@
-if (response.serverContent?.modelTurn?.parts) {
-    const parts = response.serverContent.modelTurn.parts;
-    for (const part of parts) {
-        if (part.text) {
-            console.log('Model text:', part.text);
-            conversationHistory.push({
-                role: 'model',
-                text: part.text,
-                timestamp: new Date().toISOString()
-            });
-        }
-        if (part.inlineData && part.inlineData.mimeType.startsWith('audio/')) {
-            // Audio processing logic (existing)
-            const pcmData = muLawToPcm(Buffer.from(part.inlineData.data, 'base64'));
-            // ... rest of audio handling code ...
-            // Since we are replacing the block, we need to be careful to keep existing audio logic.
-            // However, the previous view_file didn't show the full audio logic inside the if. 
-            // I should rather use a multi_replace or ensure I have the full content.
-            // Let's abort this replace and do a multi_replace or read carefully.
-        }
-    }
-}
-
 import { muLawToPcm, resample8To16, pcmToMuLaw, resample24To8 } from './audio-utils';
+import { getToolDeclarations, executeTool } from './tool-manager';
+import { analyzeCall, ConversationEntry } from './analysis-service';
+import { WebSocket } from 'ws';
+import crypto from 'crypto';
 
 export function setupSipBridge(ws: WebSocket) {
     let geminiWs: WebSocket | null = null;
@@ -34,17 +15,23 @@ export function setupSipBridge(ws: WebSocket) {
         return;
     }
 
+    // ─── Per-call state ─────────────────────────────────────────────────
+    const callId = crypto.randomUUID();
+    const callStartTime = Date.now();
+    const conversationLog: ConversationEntry[] = [];
+    const toolsUsed: string[] = [];
+
     const host = 'generativelanguage.googleapis.com';
     const url = `wss://${host}/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContent?key=${apiKey}`;
 
     const connectToGemini = () => {
-        console.log('Connecting to Gemini Multimodal Live API (Generic SIP)...');
+        console.log(`[Call ${callId}] Connecting to Gemini Multimodal Live API...`);
         geminiWs = new WebSocket(url);
 
         geminiWs.on('open', () => {
-            console.log('Connected to Gemini Live API');
+            console.log(`[Call ${callId}] Connected to Gemini Live API`);
 
-            const setupMessage = {
+            const setupMessage: Record<string, any> = {
                 setup: {
                     model: process.env.GEMINI_MODEL || "models/gemini-2.0-flash-exp",
                     generationConfig: {
@@ -61,7 +48,8 @@ export function setupSipBridge(ws: WebSocket) {
                         parts: [{
                             text: process.env.VOICE_PROMPT || "Eres QuantumIA, el consultor de IA de élite. Responde de forma profesional, amable y concisa. Habla siempre en español de Colombia."
                         }]
-                    }
+                    },
+                    tools: getToolDeclarations()
                 }
             };
             geminiWs?.send(JSON.stringify(setupMessage));
@@ -72,15 +60,23 @@ export function setupSipBridge(ws: WebSocket) {
                 const response = JSON.parse(data.toString());
 
                 if (response.setupComplete) {
-                    console.log('Gemini Setup Complete (Generic SIP).');
+                    console.log(`[Call ${callId}] Gemini Setup Complete.`);
                     isSetupComplete = true;
                     return;
                 }
 
+                // ─── Handle Tool Calls ──────────────────────────────────
+                if (response.toolCall) {
+                    handleToolCall(response.toolCall);
+                    return;
+                }
+
+                // ─── Handle Audio + Text ────────────────────────────────
                 if (response.serverContent) {
                     const parts = response.serverContent.modelTurn?.parts || response.serverContent.modelDraft?.parts;
                     if (parts) {
                         for (const part of parts) {
+                            // Audio: transcode and send to SIP
                             if (part.inlineData && part.inlineData.mimeType.includes('audio')) {
                                 const audioBuffer = Buffer.from(part.inlineData.data, 'base64');
                                 const resampled = resample24To8(audioBuffer);
@@ -93,30 +89,83 @@ export function setupSipBridge(ws: WebSocket) {
                                     }));
                                 }
                             }
+
+                            // Text: log to conversation for post-call analysis
+                            if (part.text) {
+                                conversationLog.push({
+                                    role: 'model',
+                                    text: part.text,
+                                    timestamp: Date.now()
+                                });
+                            }
                         }
                     }
                 }
 
                 if (response.error) {
-                    console.error('Gemini API Error:', JSON.stringify(response.error));
+                    console.error(`[Call ${callId}] Gemini API Error:`, JSON.stringify(response.error));
                 }
 
             } catch (err) {
-                console.error('Error parsing Gemini message:', err);
+                console.error(`[Call ${callId}] Error parsing Gemini message:`, err);
             }
         });
 
         geminiWs.on('error', (err) => {
-            console.error('Gemini WebSocket error:', err);
+            console.error(`[Call ${callId}] Gemini WebSocket error:`, err);
         });
 
         geminiWs.on('close', (code, reason) => {
-            console.log(`Gemini connection closed: ${code} ${reason}`);
+            console.log(`[Call ${callId}] Gemini connection closed: ${code} ${reason}`);
             isSetupComplete = false;
         });
     };
 
-    // Auto-connect on socket open
+    // ─── Tool Call Handler ───────────────────────────────────────────────
+
+    async function handleToolCall(toolCall: any) {
+        const functionCalls = toolCall.functionCalls || [];
+
+        for (const fc of functionCalls) {
+            console.log(`[Call ${callId}] Tool call: ${fc.name}`, JSON.stringify(fc.args));
+            toolsUsed.push(fc.name);
+
+            const result = await executeTool(fc.name, fc.args || {}, callId);
+
+            // Send the tool response back to Gemini
+            if (geminiWs && geminiWs.readyState === WebSocket.OPEN) {
+                const toolResponse = {
+                    toolResponse: {
+                        functionResponses: [{
+                            id: fc.id,
+                            name: fc.name,
+                            response: result
+                        }]
+                    }
+                };
+                geminiWs.send(JSON.stringify(toolResponse));
+                console.log(`[Call ${callId}] Tool response sent for: ${fc.name}`);
+            }
+        }
+    }
+
+    // ─── Post-Call Analysis ──────────────────────────────────────────────
+
+    async function runPostCallAnalysis() {
+        const durationSeconds = Math.round((Date.now() - callStartTime) / 1000);
+        console.log(`[Call ${callId}] Call ended. Duration: ${durationSeconds}s. Messages: ${conversationLog.length}. Tools: ${toolsUsed.length}`);
+
+        if (conversationLog.length > 0) {
+            try {
+                await analyzeCall(callId, conversationLog, toolsUsed, durationSeconds);
+            } catch (err) {
+                console.error(`[Call ${callId}] Post-call analysis failed:`, err);
+            }
+        }
+    }
+
+    // ─── Connect & Listen ────────────────────────────────────────────────
+
     connectToGemini();
 
     ws.on('message', (message) => {
@@ -143,12 +192,14 @@ export function setupSipBridge(ws: WebSocket) {
                 }
             }
         } catch (err) {
-            console.error('Error processing SIP Gateway message:', err);
+            console.error(`[Call ${callId}] Error processing SIP Gateway message:`, err);
         }
     });
 
     ws.on('close', () => {
-        console.log('SIP Gateway WebSocket connection closed');
+        console.log(`[Call ${callId}] SIP Gateway WebSocket connection closed`);
         if (geminiWs) geminiWs.close();
+        // Run analysis asynchronously after the call ends
+        runPostCallAnalysis();
     });
 }

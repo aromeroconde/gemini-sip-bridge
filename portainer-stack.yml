@@ -6,24 +6,37 @@ services:
     deploy:
       restart_policy:
         condition: on-failure
-    network_mode: host
+    networks:
+      - bridge_net
+    ports:
+      - target: 5060
+        published: 5060
+        protocol: udp
+        mode: host
+      - target: 5060
+        published: 5060
+        protocol: tcp
+        mode: host
     environment:
       DRACHTIO_SECRET: ${DRACHTIO_SECRET:-cymru}
       DRACHTIO_LOGLEVEL: info
+    volumes:
+      - drachtio_data:/data
 
   gemini_bridge:
     image: aromeroconde/gemini-sip-bridge:latest
     deploy:
       restart_policy:
         condition: on-failure
-    network_mode: host
+    networks:
+      - bridge_net
     environment:
       NODE_ENV: production
       GOOGLE_API_KEY: ${GOOGLE_API_KEY}
       GEMINI_MODEL: ${GEMINI_MODEL:-models/gemini-2.5-flash-native-audio-preview-12-2025}
       VOICE_NAME: ${VOICE_NAME:-Puck}
       VOICE_PROMPT: ${VOICE_PROMPT:-Eres QuantumIA, el consultor de IA de élite. Responde de forma profesional, amable y concisa. Habla siempre en español de Colombia.}
-      DRACHTIO_HOST: 127.0.0.1
+      DRACHTIO_HOST: drachtio_server
       DRACHTIO_PORT: "9022"
       DRACHTIO_SECRET: ${DRACHTIO_SECRET:-cymru}
       BRIDGE_WS_URL: ws://localhost:3001/sip-bridge
@@ -33,3 +46,14 @@ services:
       SIP_OUTBOUND_PROXY: ${SIP_OUTBOUND_PROXY}
       SIP_USER: ${SIP_USER}
       SIP_PASSWORD: ${SIP_PASSWORD}
+    volumes:
+      - bridge_data:/app/data
+
+networks:
+  bridge_net:
+    driver: overlay
+    attachable: true
+
+volumes:
+  drachtio_data:
+  bridge_data:

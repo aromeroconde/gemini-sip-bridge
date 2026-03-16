@@ -1,6 +1,7 @@
 import Srf from 'drachtio-srf';
 import WebSocket from 'ws';
 import dgram from 'dgram';
+import os from 'os';
 
 const srf = new Srf();
 
@@ -19,6 +20,21 @@ function getNextRtpPort() {
     nextRtpPort += 2;
     if (nextRtpPort > 11000) nextRtpPort = RTP_PORT_START;
     return port;
+}
+
+function getLocalIp(): string {
+    if (process.env.SIP_EXTERNAL_IP) return process.env.SIP_EXTERNAL_IP;
+    
+    const interfaces = os.networkInterfaces();
+    for (const name of Object.keys(interfaces)) {
+        for (const iface of interfaces[name] || []) {
+            // Skip loopback and non-ipv4 addresses
+            if (iface.family === 'IPv4' && !iface.internal) {
+                return iface.address;
+            }
+        }
+    }
+    return '127.0.0.1';
 }
 
 /**
@@ -167,7 +183,7 @@ export function startSipGateway() {
         const ws = new WebSocket(BRIDGE_WS_URL);
         const remoteInfo = parseSdp(req.body);
 
-        const localIp = process.env.SIP_EXTERNAL_IP || '127.0.0.1';
+        const localIp = getLocalIp();
         const localSdp = buildSdp(localIp, rtpPort);
         console.log(`[Inbound] Advertising RTP at ${localIp}:${rtpPort}`);
 
@@ -204,7 +220,7 @@ export function startSipGateway() {
  * The call connects to the Gemini bridge once the remote party answers.
  */
 export async function makeOutboundCall(targetUri: string): Promise<{ success: boolean; message: string }> {
-    const localIp = process.env.SIP_EXTERNAL_IP || '127.0.0.1';
+    const localIp = getLocalIp();
     const rtpPort = getNextRtpPort();
     const rtpSocket = dgram.createSocket('udp4');
 

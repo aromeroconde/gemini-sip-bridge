@@ -49,10 +49,7 @@ export function setupSipBridge(ws: WebSocket) {
                             text: process.env.VOICE_PROMPT || "Eres QuantumIA, el consultor de IA de élite. Responde de forma profesional, amable y concisa. Habla siempre en español de Colombia."
                         }]
                     },
-                    tools: getToolDeclarations(),
-                    turnDetection: {
-                        threshold: 0.5
-                    }
+                    tools: getToolDeclarations()
                 }
             };
             console.log(`[Call ${callId}] Sending setup message...`);

@@ -3,25 +3,18 @@ version: '3.8'
 services:
   drachtio_server:
     image: drachtio/drachtio-server:latest
-    deploy:
-      restart_policy:
-        condition: on-failure
-    networks:
-      - bridge_net
+    command: ["drachtio", "--address", "0.0.0.0", "--port", "5060", "--admin-address", "0.0.0.0", "--admin-port", "9022", "--secret", "cymru"]
     ports:
-      - target: 5060
-        published: 5060
-        protocol: udp
-        mode: host
-      - target: 5060
-        published: 5060
-        protocol: tcp
-        mode: host
+      - "5060:5060/udp"
+      - "5060:5060/tcp"
+      - "9022:9022"
     environment:
-      DRACHTIO_SECRET: ${DRACHTIO_SECRET:-cymru}
+      DRACHTIO_SECRET: "cymru"
       DRACHTIO_LOGLEVEL: info
     volumes:
       - drachtio_data:/data
+    networks:
+      - bridge_net
 
   gemini_bridge:
     image: aromeroconde/gemini-sip-bridge:latest
@@ -39,13 +32,15 @@ services:
       DRACHTIO_HOST: drachtio_server
       DRACHTIO_PORT: "9022"
       DRACHTIO_SECRET: ${DRACHTIO_SECRET:-cymru}
-      BRIDGE_WS_URL: ws://localhost:3001/sip-bridge
+      BRIDGE_WS_URL: ws://gemini_bridge:3001/sip-bridge
       SIP_EXTERNAL_IP: ${SIP_EXTERNAL_IP}
       WEBHOOK_URL: ${WEBHOOK_URL}
       REPORT_WEBHOOK_URL: ${REPORT_WEBHOOK_URL}
       SIP_OUTBOUND_PROXY: ${SIP_OUTBOUND_PROXY}
       SIP_USER: ${SIP_USER}
       SIP_PASSWORD: ${SIP_PASSWORD}
+    ports:
+      - "3001:3001"
     volumes:
       - bridge_data:/app/data
 

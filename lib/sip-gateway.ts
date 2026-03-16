@@ -238,6 +238,9 @@ export async function makeOutboundCall(targetUri: string): Promise<{ success: bo
     console.log(`[Outbound] Using proxy: ${sipProxy}, user: ${sipUser}`);
 
     try {
+        // Detailed logging for authentication
+        console.log(`[Outbound] Using credentials - User: ${sipUser}, Proxy: ${sipProxy}`);
+
         const dialog = await (srf as any).createUAC(targetUri, {
             localSdp,
             proxy: `sip:${sipProxy}`,
@@ -245,8 +248,8 @@ export async function makeOutboundCall(targetUri: string): Promise<{ success: bo
                 username: sipUser,
                 password: sipPassword
             },
-            callingNumber: sipUser,
             headers: {
+                'From': `<sip:${sipUser}@${sipProxy}>`,
                 'User-Agent': 'Gemini-SIP-Bridge/1.0'
             }
         });

@@ -25,7 +25,7 @@ export function setupTwilioBridge(ws: WebSocket) {
             
             const setupMessage = {
                 setup: {
-                    model: process.env.GEMINI_MODEL || "models/gemini-2.5-flash-native-audio-preview-12-2025",
+                    model: process.env.GEMINI_MODEL || "models/gemini-2.0-flash-exp",
                     generationConfig: {
                         responseModalities: ["AUDIO"],
                         speechConfig: {

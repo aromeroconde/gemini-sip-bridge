@@ -84,6 +84,6 @@ server.on('upgrade', (request, socket, head) => {
 });
 
 server.listen(port, () => {
-    console.log(`Gemini SIP Bridge running on port ${port}`);
+    console.log(`Gemini SIP Bridge v1.1.0 running on port ${port}`);
     startSipGateway();
 });

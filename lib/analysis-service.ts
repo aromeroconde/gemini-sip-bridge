@@ -24,6 +24,7 @@ export interface CallAnalysis {
     extracted_data: Record<string, string>;
     tools_used: string[];
     resolution_status: 'resolved' | 'unresolved' | 'transferred' | 'unknown';
+    transcript: string;
 }
 
 const ANALYSIS_PROMPT = `Eres un analista de calidad de llamadas telefónicas. Analiza la siguiente transcripción de una llamada entre un asistente de IA y un cliente.
@@ -71,7 +72,7 @@ export async function analyzeCall(
     try {
         const genAI = new GoogleGenerativeAI(apiKey);
         const model = genAI.getGenerativeModel({
-            model: 'gemini-2.5-flash'
+            model: process.env.ANALYSIS_MODEL || 'gemini-2.0-flash'
         });
 
         // Format the conversation for analysis
@@ -95,7 +96,8 @@ export async function analyzeCall(
             action_items: analysis.action_items || [],
             extracted_data: analysis.extracted_data || {},
             tools_used: toolsUsed,
-            resolution_status: analysis.resolution_status || 'unknown'
+            resolution_status: analysis.resolution_status || 'unknown',
+            transcript: transcriptText
         };
 
         console.log(`[Analysis] Call ${callId} analyzed:`, callAnalysis.summary);

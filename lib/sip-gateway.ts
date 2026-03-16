@@ -40,8 +40,16 @@ function bridgeCallToGemini(
     let playbackInterval: NodeJS.Timeout | null = null;
 
     // Receive RTP from remote → forward to Gemini bridge
+    let rtpPacketCount = 0;
     rtpSocket.on('message', (msg) => {
         if (msg.length <= 12) return;
+        rtpPacketCount++;
+        if (rtpPacketCount === 1) {
+            console.log(`[${label}] First RTP packet received (${msg.length} bytes) from remote`);
+        }
+        if (rtpPacketCount % 500 === 0) {
+            console.log(`[${label}] RTP packets received: ${rtpPacketCount}`);
+        }
         const payload = msg.slice(12);
         if (ws.readyState === WebSocket.OPEN) {
             ws.send(JSON.stringify({
@@ -52,32 +60,56 @@ function bridgeCallToGemini(
     });
 
     // Playback interval: send audio from Gemini → RTP at constant 20ms
+    let sentPackets = 0;
     playbackInterval = setInterval(() => {
-        if (audioBufferQueue.length > 0 && remoteInfo) {
-            const chunk = audioBufferQueue.shift()!;
-            const rtpPacket = Buffer.alloc(12 + chunk.length);
-            rtpPacket[0] = 0x80;
-            rtpPacket[1] = 0x00;
-            rtpPacket.writeUInt16BE(sequenceNumber & 0xFFFF, 2);
-            rtpPacket.writeUInt32BE(timestamp >>> 0, 4);
-            rtpPacket.writeUInt32BE(ssrc >>> 0, 8);
-            chunk.copy(rtpPacket, 12);
-            rtpSocket.send(rtpPacket, remoteInfo.port, remoteInfo.address);
-            sequenceNumber++;
+        const playbackPayload = audioBufferQueue.shift();
+        if (playbackPayload) {
+            if (!remoteInfo) return;
+
+            // Build RTP header
+            const rtpPacket = Buffer.alloc(12 + playbackPayload.length);
+            rtpPacket[0] = 0x80; // Version 2
+            rtpPacket[1] = 0x00; // Payload type 0 (PCMU)
+            rtpPacket.writeUInt16BE(sequenceNumber++, 2);
+            rtpPacket.writeUInt32BE(timestamp, 4);
+            rtpPacket.writeUInt32BE(ssrc >>> 0, 8); // Use the ssrc defined earlier
+            // rtpPacket.writeUInt32BE(0x12345678, 8); // SSRC - original diff had this, but ssrc is already defined
+
+            playbackPayload.copy(rtpPacket, 12);
+            rtpSocket.send(rtpPacket, remoteInfo.port, remoteInfo.address, (err) => {
+                if (err) console.error(`[${label}] Error sending RTP: ${err.message}`);
+            });
+
             timestamp += 160;
+            sentPackets++;
+
+            if (sentPackets % 100 === 0) {
+                console.log(`[${label}] RTP packets sent: ${sentPackets}, queue size: ${audioBufferQueue.length}`);
+            }
         }
     }, 20);
 
     // Receive audio from Gemini bridge → queue for RTP playback
+    let geminiAudioChunks = 0;
     ws.on('message', (data) => {
         try {
             const message = JSON.parse(data.toString());
-            if (message.event === 'audio') {
-                const newAudio = Buffer.from(message.data, 'base64');
-                for (let i = 0; i < newAudio.length; i += 160) {
-                    audioBufferQueue.push(newAudio.slice(i, i + 160));
+                if (message.event === 'audio') {
+                    geminiAudioChunks++;
+                    if (geminiAudioChunks === 1) {
+                        console.log(`[${label}] First audio chunk from Gemini bridge`);
+                    }
+                    const newAudio = Buffer.from(message.data, 'base64');
+                    if (geminiAudioChunks === 1) { // Log for first audio data received
+                        console.log(`[${label}] First audio data received from bridge, size: ${newAudio.length} bytes`);
+                    }
+                    for (let i = 0; i < newAudio.length; i += 160) {
+                        audioBufferQueue.push(newAudio.slice(i, i + 160));
+                    }
+                } else if (message.event === 'clear') {
+                    console.log(`[${label}] Clearing audio buffer due to interruption signal`);
+                    audioBufferQueue.splice(0, audioBufferQueue.length);
                 }
-            }
         } catch (e) {
             console.error(`[${label}] Error processing bridge message:`, e);
         }
@@ -137,6 +169,7 @@ export function startSipGateway() {
 
         const localIp = process.env.SIP_EXTERNAL_IP || '127.0.0.1';
         const localSdp = buildSdp(localIp, rtpPort);
+        console.log(`[Inbound] Advertising RTP at ${localIp}:${rtpPort}`);
 
         rtpSocket.bind(rtpPort);
 
@@ -180,6 +213,7 @@ export async function makeOutboundCall(targetUri: string): Promise<{ success: bo
     const localSdp = buildSdp(localIp, rtpPort);
 
     console.log(`[Outbound] Dialing ${targetUri}...`);
+    console.log(`[Outbound] Local SDP IP: ${localIp}, RTP port: ${rtpPort}`);
 
     const sipUser = process.env.SIP_USER;
     const sipPassword = process.env.SIP_PASSWORD;
@@ -204,7 +238,9 @@ export async function makeOutboundCall(targetUri: string): Promise<{ success: bo
         console.log(`[Outbound] Call answered by ${targetUri}`);
 
         const remoteSdp = dialog.remote.sdp;
+        console.log(`[Outbound] Remote SDP received:`, remoteSdp?.substring(0, 200));
         const remoteInfo = parseSdp(remoteSdp);
+        console.log(`[Outbound] Remote RTP target:`, remoteInfo);
 
         const ws = new WebSocket(BRIDGE_WS_URL);
 

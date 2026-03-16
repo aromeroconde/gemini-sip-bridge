@@ -150,7 +150,8 @@ export async function executeTool(
 
             const result = await response.json();
             console.log(`[ToolManager] Webhook response:`, JSON.stringify(result));
-            return result;
+            // Ensure result is a clean object for Gemini
+            return typeof result === 'object' ? result : { result: result };
         } catch (err) {
             console.error(`[ToolManager] Webhook call failed:`, err);
             return { success: false, error: 'No se pudo conectar con el sistema externo' };

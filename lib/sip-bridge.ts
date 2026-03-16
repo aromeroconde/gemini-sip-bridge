@@ -33,7 +33,7 @@ export function setupSipBridge(ws: WebSocket) {
 
             const setupMessage: Record<string, any> = {
                 setup: {
-                    model: process.env.GEMINI_MODEL || "models/gemini-2.5-flash-native-audio-preview-12-2025",
+                    model: process.env.GEMINI_MODEL || "models/gemini-2.0-flash-exp",
                     generationConfig: {
                         responseModalities: ["AUDIO"],
                         speechConfig: {
@@ -49,9 +49,13 @@ export function setupSipBridge(ws: WebSocket) {
                             text: process.env.VOICE_PROMPT || "Eres QuantumIA, el consultor de IA de élite. Responde de forma profesional, amable y concisa. Habla siempre en español de Colombia."
                         }]
                     },
-                    tools: getToolDeclarations()
+                    tools: getToolDeclarations(),
+                    turnDetection: {
+                        threshold: 0.5
+                    }
                 }
             };
+            console.log(`[Call ${callId}] Sending setup message...`);
             geminiWs?.send(JSON.stringify(setupMessage));
         });
 
@@ -65,6 +69,15 @@ export function setupSipBridge(ws: WebSocket) {
                     return;
                 }
 
+                // ─── Handle Interruption ────────────────────────────────
+                if (response.serverContent?.interrupted) {
+                    console.log(`[Call ${callId}] Gemini detected interruption. Clearing SIP Gateway buffers.`);
+                    if (ws.readyState === WebSocket.OPEN) {
+                        ws.send(JSON.stringify({ event: 'clear' }));
+                    }
+                    return;
+                }
+
                 // ─── Handle Tool Calls ──────────────────────────────────
                 if (response.toolCall) {
                     handleToolCall(response.toolCall);
@@ -73,12 +86,15 @@ export function setupSipBridge(ws: WebSocket) {
 
                 // ─── Handle Audio + Text ────────────────────────────────
                 if (response.serverContent) {
-                    const parts = response.serverContent.modelTurn?.parts || response.serverContent.modelDraft?.parts;
-                    if (parts) {
-                        for (const part of parts) {
+                    const modelTurn = response.serverContent.modelTurn;
+                    if (modelTurn && modelTurn.parts) {
+                        for (const part of modelTurn.parts) {
                             // Audio: transcode and send to SIP
                             if (part.inlineData && part.inlineData.mimeType.includes('audio')) {
                                 const audioBuffer = Buffer.from(part.inlineData.data, 'base64');
+                                if (conversationLog.length === 0 || toolsUsed.length === 0) {
+                                    console.log(`[Call ${callId}] Gemini sent audio chunk: ${audioBuffer.length} bytes`);
+                                }
                                 const resampled = resample24To8(audioBuffer);
                                 const mulaw = pcmToMuLaw(resampled);
 
@@ -90,7 +106,7 @@ export function setupSipBridge(ws: WebSocket) {
                                 }
                             }
 
-                            // Text: log to conversation for post-call analysis
+                            // Text: log to conversation
                             if (part.text) {
                                 conversationLog.push({
                                     role: 'model',
@@ -125,6 +141,7 @@ export function setupSipBridge(ws: WebSocket) {
 
     async function handleToolCall(toolCall: any) {
         const functionCalls = toolCall.functionCalls || [];
+        const functionResponses = [];
 
         for (const fc of functionCalls) {
             console.log(`[Call ${callId}] Tool call: ${fc.name}`, JSON.stringify(fc.args));
@@ -132,20 +149,21 @@ export function setupSipBridge(ws: WebSocket) {
 
             const result = await executeTool(fc.name, fc.args || {}, callId);
 
-            // Send the tool response back to Gemini
-            if (geminiWs && geminiWs.readyState === WebSocket.OPEN) {
-                const toolResponse = {
-                    toolResponse: {
-                        functionResponses: [{
-                            id: fc.id,
-                            name: fc.name,
-                            response: result
-                        }]
-                    }
-                };
-                geminiWs.send(JSON.stringify(toolResponse));
-                console.log(`[Call ${callId}] Tool response sent for: ${fc.name}`);
-            }
+            functionResponses.push({
+                id: fc.id,
+                name: fc.name,
+                response: result
+            });
+        }
+
+        if (geminiWs && geminiWs.readyState === WebSocket.OPEN && functionResponses.length > 0) {
+            const toolResponse = {
+                toolResponse: {
+                    functionResponses: functionResponses
+                }
+            };
+            geminiWs.send(JSON.stringify(toolResponse));
+            console.log(`[Call ${callId}] Tool responses sent: ${functionResponses.map(r => r.name).join(', ')}`);
         }
     }
 
@@ -181,9 +199,9 @@ export function setupSipBridge(ws: WebSocket) {
                     const resampled = resample8To16(pcm);
 
                     const inputMessage = {
-                        realtime_input: {
-                            media_chunks: [{
-                                mime_type: "audio/pcm;rate=16000",
+                        realtimeInput: {
+                            mediaChunks: [{
+                                mimeType: "audio/pcm;rate=16000",
                                 data: resampled.toString('base64')
                             }]
                         }

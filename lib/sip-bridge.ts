@@ -62,7 +62,7 @@ export function setupSipBridge(ws: WebSocket) {
 
     // ─── Connect to Gemini Live API ─────────────────────────────────────
 
-    console.log(`[Call ${callId}] Version v2.0.1 - Connecting to Gemini Live API...`);
+    console.log(`[Call ${callId}] Version v2.0.2 - Connecting to Gemini Live API...`);
     console.log(`[Call ${callId}] Config:`, JSON.stringify({
         model: process.env.GEMINI_MODEL || 'gemini-3.1-flash-live-preview',
         config: {
@@ -72,10 +72,14 @@ export function setupSipBridge(ws: WebSocket) {
     }, null, 2));
 
 
+    const MODEL_ID = process.env.GEMINI_MODEL || 'gemini-3.1-flash-live-preview';
+    const modelWithPrefix = MODEL_ID.startsWith('models/') ? MODEL_ID : `models/${MODEL_ID}`;
+
     ai.live.connect({
-        model: process.env.GEMINI_MODEL || 'gemini-3.1-flash-live-preview',
+        model: modelWithPrefix,
         config: {
             responseModalities: [Modality.AUDIO, Modality.TEXT],
+            thinkingLevel: 'minimal',
             speechConfig: {
                 voiceConfig: {
                     prebuiltVoiceConfig: {
@@ -87,7 +91,7 @@ export function setupSipBridge(ws: WebSocket) {
             tools: getToolDeclarations(),
             outputAudioTranscription: {},
             inputAudioTranscription: {},
-        },
+        } as any,
         callbacks: {
             onopen: () => {
                 console.log(`[Call ${callId}] Connected to Gemini Live API`);

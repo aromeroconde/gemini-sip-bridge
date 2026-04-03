@@ -12,9 +12,22 @@ services:
     restart: always
 
   gemini_bridge:
-    image: aromeroconde/gemini-sip-bridge:latest
+    image: node:20-alpine
+    working_dir: /app
+    # Se construye a sí mismo al arrancar clonando el repo
+    # Requiere la variable GIT_TOKEN en Portainer
+    command: >
+      sh -c "apk add --no-cache git && 
+             rm -rf /temp_code && 
+             git clone https://$${GIT_TOKEN}@github.com/aromeroconde/gemini-sip-bridge.git /temp_code && 
+             cp -a /temp_code/. /app/ && 
+             rm -rf /temp_code && 
+             npm install && 
+             npm run build && 
+             node dist/index.js"
     environment:
       NODE_ENV: production
+      GIT_TOKEN: ${GIT_TOKEN}
       GOOGLE_API_KEY: ${GOOGLE_API_KEY}
       GEMINI_MODEL: ${GEMINI_MODEL:-gemini-3.1-flash-live-preview}
       VOICE_NAME: ${VOICE_NAME:-Zephyr}
@@ -39,5 +52,6 @@ networks:
   bridge_net:
     driver: overlay
     attachable: true
+
 
 

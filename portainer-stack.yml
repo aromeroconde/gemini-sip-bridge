@@ -33,7 +33,7 @@ services:
       NODE_ENV: production
       GIT_TOKEN: ${GIT_TOKEN}
       GOOGLE_API_KEY: ${GOOGLE_API_KEY}
-      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-2.0-flash-exp}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-3.1-flash-live-preview}
       VOICE_NAME: ${VOICE_NAME:-Zephyr}
       VOICE_PROMPT: ${VOICE_PROMPT:-Eres QuantumIA, el consultor de IA de élite. Responde de forma profesional, amable y concisa. Habla siempre en español de Colombia.}
       DRACHTIO_HOST: drachtio_server

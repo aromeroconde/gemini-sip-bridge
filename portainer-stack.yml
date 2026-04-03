@@ -1,54 +1,34 @@
 version: '3.8'
 
 services:
+  # SIP Server (Drachtio) - uses host network for correct SIP headers
   drachtio_server:
     image: drachtio/drachtio-server:latest
-    ports:
-      - "5060:5060/udp"
-      - "5060:5060/tcp"
-      - "9022:9022"
+    network_mode: host
     environment:
-      DRACHTIO_SECRET: "cymru"
+      DRACHTIO_SECRET: cymru
       DRACHTIO_LOGLEVEL: info
-      DRACHTIO_CONTACTS: "sip:*;transport=udp,tcp"
-    volumes:
-      - drachtio_data:/data
-    networks:
-      - bridge_net
+    restart: always
 
+  # Gemini SIP Bridge
   gemini_bridge:
     image: aromeroconde/gemini-sip-bridge:latest
-    deploy:
-      restart_policy:
-        condition: on-failure
-    networks:
-      - bridge_net
+    network_mode: host
     environment:
       NODE_ENV: production
       GOOGLE_API_KEY: ${GOOGLE_API_KEY}
       GEMINI_MODEL: ${GEMINI_MODEL:-gemini-3.1-flash-live-preview}
       VOICE_NAME: ${VOICE_NAME:-Zephyr}
       VOICE_PROMPT: ${VOICE_PROMPT:-Eres QuantumIA, el consultor de IA de élite. Responde de forma profesional, amable y concisa. Habla siempre en español de Colombia.}
-      DRACHTIO_HOST: drachtio_server
+      DRACHTIO_HOST: 127.0.0.1
       DRACHTIO_PORT: "9022"
-      DRACHTIO_SECRET: ${DRACHTIO_SECRET:-cymru}
-      BRIDGE_WS_URL: ws://gemini_bridge:3001/sip-bridge
-      SIP_EXTERNAL_IP: ${SIP_EXTERNAL_IP}
+      DRACHTIO_SECRET: cymru
+      BRIDGE_WS_URL: ws://localhost:3001/sip-bridge
+      SIP_EXTERNAL_IP: ${SIP_EXTERNAL_IP:-5.189.166.241}
       WEBHOOK_URL: ${WEBHOOK_URL}
       REPORT_WEBHOOK_URL: ${REPORT_WEBHOOK_URL}
       SIP_OUTBOUND_PROXY: ${SIP_OUTBOUND_PROXY}
       SIP_USER: ${SIP_USER}
       SIP_PASSWORD: ${SIP_PASSWORD}
-    ports:
-      - "3001:3001"
-    volumes:
-      - bridge_data:/app/data
+    restart: always
 
-networks:
-  bridge_net:
-    driver: overlay
-    attachable: true
-
-volumes:
-  drachtio_data:
-  bridge_data:

@@ -1,12 +1,12 @@
 /**
  * Post-Call Analysis Service
- * 
- * Uses Gemini 3 Flash (standard REST API) to analyze conversation logs
+ *
+ * Uses Gemini Flash (standard REST API) to analyze conversation logs
  * after a call ends. Generates structured insights and sends them to
  * a webhook for further processing.
  */
 
-import { GoogleGenerativeAI } from '@google/generative-ai';
+import { GoogleGenAI } from '@google/genai';
 
 export interface ConversationEntry {
     role: 'user' | 'model';
@@ -50,7 +50,7 @@ TRANSCRIPCIÓN:
 `;
 
 /**
- * Analyze a completed call's conversation log using Gemini 3 Flash.
+ * Analyze a completed call's conversation log using Gemini Flash.
  */
 export async function analyzeCall(
     callId: string,
@@ -70,18 +70,20 @@ export async function analyzeCall(
     }
 
     try {
-        const genAI = new GoogleGenerativeAI(apiKey);
-        const model = genAI.getGenerativeModel({
-            model: process.env.ANALYSIS_MODEL || 'gemini-2.0-flash'
-        });
+        const ai = new GoogleGenAI({ apiKey });
+        const modelName = process.env.ANALYSIS_MODEL || 'gemini-2.5-flash';
 
         // Format the conversation for analysis
         const transcriptText = conversation
             .map(entry => `[${entry.role === 'user' ? 'CLIENTE' : 'ASISTENTE'}]: ${entry.text}`)
             .join('\n');
 
-        const result = await model.generateContent(ANALYSIS_PROMPT + transcriptText);
-        const responseText = result.response.text();
+        const response = await ai.models.generateContent({
+            model: modelName,
+            contents: ANALYSIS_PROMPT + transcriptText,
+        });
+
+        const responseText = response.text ?? '';
 
         // Parse the JSON response
         const cleanJson = responseText.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();

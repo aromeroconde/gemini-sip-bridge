@@ -1,3 +1,4 @@
+import { GoogleGenAI, Modality, Session, LiveServerMessage, LiveServerToolCall } from '@google/genai';
 import { muLawToPcm, resample8To16, pcmToMuLaw, resample24To8 } from './audio-utils';
 import { getToolDeclarations, executeTool } from './tool-manager';
 import { analyzeCall, ConversationEntry } from './analysis-service';
@@ -5,8 +6,6 @@ import { WebSocket } from 'ws';
 import crypto from 'crypto';
 
 export function setupSipBridge(ws: WebSocket) {
-    let geminiWs: WebSocket | null = null;
-    let isSetupComplete = false;
     const apiKey = process.env.GOOGLE_API_KEY;
 
     if (!apiKey) {
@@ -21,146 +20,28 @@ export function setupSipBridge(ws: WebSocket) {
     const conversationLog: ConversationEntry[] = [];
     const toolsUsed: string[] = [];
 
-    const host = 'generativelanguage.googleapis.com';
-    const url = `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent?key=${apiKey}`;
-
-    const connectToGemini = () => {
-        console.log(`[Call ${callId}] Connecting to Gemini Multimodal Live API...`);
-        geminiWs = new WebSocket(url);
-
-        geminiWs.on('open', () => {
-            console.log(`[Call ${callId}] Connected to Gemini Live API`);
-
-            const setupMessage: Record<string, any> = {
-                setup: {
-                    model: process.env.GEMINI_MODEL || "models/gemini-2.0-flash-exp",
-                    generationConfig: {
-                        responseModalities: ["AUDIO"],
-                        speechConfig: {
-                            voiceConfig: {
-                                prebuiltVoiceConfig: {
-                                    voiceName: process.env.VOICE_NAME || "Puck"
-                                }
-                            }
-                        }
-                    },
-                    systemInstruction: {
-                        parts: [{
-                            text: process.env.VOICE_PROMPT || "Eres QuantumIA, el consultor de IA de élite. Responde de forma profesional, amable y concisa. Habla siempre en español de Colombia."
-                        }]
-                    },
-                    tools: getToolDeclarations()
-                }
-            };
-            console.log(`[Call ${callId}] Sending setup message...`);
-            geminiWs?.send(JSON.stringify(setupMessage));
-        });
-
-        geminiWs.on('message', (data) => {
-            try {
-                const response = JSON.parse(data.toString());
-
-                if (response.setupComplete) {
-                    console.log(`[Call ${callId}] Gemini Setup Complete.`);
-                    isSetupComplete = true;
-                    return;
-                }
-
-                // ─── Handle Interruption ────────────────────────────────
-                if (response.serverContent?.interrupted) {
-                    console.log(`[Call ${callId}] Gemini detected interruption. Clearing SIP Gateway buffers.`);
-                    if (ws.readyState === WebSocket.OPEN) {
-                        ws.send(JSON.stringify({ event: 'clear' }));
-                    }
-                    return;
-                }
-
-                // ─── Handle Tool Calls ──────────────────────────────────
-                if (response.toolCall) {
-                    handleToolCall(response.toolCall);
-                    return;
-                }
-
-                // ─── Handle Audio + Text ────────────────────────────────
-                if (response.serverContent) {
-                    const modelTurn = response.serverContent.modelTurn;
-                    if (modelTurn && modelTurn.parts) {
-                        for (const part of modelTurn.parts) {
-                            // Audio: transcode and send to SIP
-                            if (part.inlineData && part.inlineData.mimeType.includes('audio')) {
-                                const audioBuffer = Buffer.from(part.inlineData.data, 'base64');
-                                if (conversationLog.length === 0 || toolsUsed.length === 0) {
-                                    console.log(`[Call ${callId}] Gemini sent audio chunk: ${audioBuffer.length} bytes`);
-                                }
-                                const resampled = resample24To8(audioBuffer);
-                                const mulaw = pcmToMuLaw(resampled);
-
-                                if (ws.readyState === WebSocket.OPEN) {
-                                    ws.send(JSON.stringify({
-                                        event: 'audio',
-                                        data: mulaw.toString('base64')
-                                    }));
-                                }
-                            }
-
-                            // Text: log to conversation
-                            if (part.text) {
-                                conversationLog.push({
-                                    role: 'model',
-                                    text: part.text,
-                                    timestamp: Date.now()
-                                });
-                            }
-                        }
-                    }
-                }
-
-                if (response.error) {
-                    console.error(`[Call ${callId}] Gemini API Error:`, JSON.stringify(response.error));
-                }
-
-            } catch (err) {
-                console.error(`[Call ${callId}] Error parsing Gemini message:`, err);
-            }
-        });
-
-        geminiWs.on('error', (err) => {
-            console.error(`[Call ${callId}] Gemini WebSocket error:`, err);
-        });
-
-        geminiWs.on('close', (code, reason) => {
-            console.log(`[Call ${callId}] Gemini connection closed: ${code} ${reason}`);
-            isSetupComplete = false;
-        });
-    };
+    const ai = new GoogleGenAI({ apiKey });
+    let session: Session | null = null;
 
     // ─── Tool Call Handler ───────────────────────────────────────────────
 
-    async function handleToolCall(toolCall: any) {
+    async function handleToolCall(toolCall: LiveServerToolCall) {
         const functionCalls = toolCall.functionCalls || [];
-        const functionResponses = [];
 
         for (const fc of functionCalls) {
             console.log(`[Call ${callId}] Tool call: ${fc.name}`, JSON.stringify(fc.args));
-            toolsUsed.push(fc.name);
+            toolsUsed.push(fc.name!);
 
-            const result = await executeTool(fc.name, fc.args || {}, callId);
+            const result = await executeTool(fc.name!, fc.args || {}, callId);
 
-            functionResponses.push({
-                id: fc.id,
-                name: fc.name,
-                response: result
+            session?.sendToolResponse({
+                functionResponses: [{
+                    id: fc.id,
+                    name: fc.name,
+                    response: result
+                }]
             });
-        }
-
-        if (geminiWs && geminiWs.readyState === WebSocket.OPEN && functionResponses.length > 0) {
-            const toolResponse = {
-                toolResponse: {
-                    functionResponses: functionResponses
-                }
-            };
-            geminiWs.send(JSON.stringify(toolResponse));
-            console.log(`[Call ${callId}] Tool responses sent: ${functionResponses.map(r => r.name).join(', ')}`);
+            console.log(`[Call ${callId}] Tool response sent: ${fc.name}`);
         }
     }
 
@@ -179,31 +60,135 @@ export function setupSipBridge(ws: WebSocket) {
         }
     }
 
-    // ─── Connect & Listen ────────────────────────────────────────────────
+    // ─── Connect to Gemini Live API ─────────────────────────────────────
 
-    connectToGemini();
+    console.log(`[Call ${callId}] Connecting to Gemini Live API...`);
+
+    ai.live.connect({
+        model: process.env.GEMINI_MODEL || 'gemini-3.1-flash-live-preview',
+        config: {
+            responseModalities: [Modality.AUDIO, Modality.TEXT],
+            speechConfig: {
+                voiceConfig: {
+                    prebuiltVoiceConfig: {
+                        voiceName: process.env.VOICE_NAME || 'Zephyr'
+                    }
+                }
+            },
+            systemInstruction: process.env.VOICE_PROMPT || 'Eres QuantumIA, el consultor de IA de élite. Responde de forma profesional, amable y concisa. Habla siempre en español de Colombia.',
+            tools: getToolDeclarations(),
+            outputAudioTranscription: {},
+            inputAudioTranscription: {},
+        },
+        callbacks: {
+            onopen: () => {
+                console.log(`[Call ${callId}] Connected to Gemini Live API`);
+            },
+            onmessage: (message: LiveServerMessage) => {
+                try {
+                    // ─── Setup Complete ────────────────────────────────
+                    if (message.setupComplete) {
+                        console.log(`[Call ${callId}] Gemini Setup Complete. Session: ${message.setupComplete.sessionId}`);
+                        return;
+                    }
+
+                    // ─── Handle Interruption ───────────────────────────
+                    if (message.serverContent?.interrupted) {
+                        console.log(`[Call ${callId}] Gemini detected interruption. Clearing SIP Gateway buffers.`);
+                        if (ws.readyState === WebSocket.OPEN) {
+                            ws.send(JSON.stringify({ event: 'clear' }));
+                        }
+                        return;
+                    }
+
+                    // ─── Handle Tool Calls ─────────────────────────────
+                    if (message.toolCall && message.toolCall.functionCalls?.length) {
+                        handleToolCall(message.toolCall);
+                        return;
+                    }
+
+                    // ─── Handle Audio + Text ───────────────────────────
+                    if (message.serverContent) {
+                        const content = message.serverContent;
+
+                        // Log transcriptions
+                        if (content.inputTranscription?.text) {
+                            conversationLog.push({
+                                role: 'user',
+                                text: content.inputTranscription.text,
+                                timestamp: Date.now()
+                            });
+                        }
+
+                        if (content.modelTurn?.parts) {
+                            for (const part of content.modelTurn.parts) {
+                                // Audio: transcode and send to SIP
+                                if (part.inlineData && part.inlineData.mimeType?.includes('audio')) {
+                                    const audioBuffer = Buffer.from(part.inlineData.data!, 'base64');
+                                    if (conversationLog.length <= 1) {
+                                        console.log(`[Call ${callId}] Gemini sent audio chunk: ${audioBuffer.length} bytes`);
+                                    }
+                                    const resampled = resample24To8(audioBuffer);
+                                    const mulaw = pcmToMuLaw(resampled);
+
+                                    if (ws.readyState === WebSocket.OPEN) {
+                                        ws.send(JSON.stringify({
+                                            event: 'audio',
+                                            data: mulaw.toString('base64')
+                                        }));
+                                    }
+                                }
+
+                                // Text: log to conversation
+                                if (part.text) {
+                                    conversationLog.push({
+                                        role: 'model',
+                                        text: part.text,
+                                        timestamp: Date.now()
+                                    });
+                                }
+                            }
+                        }
+                    }
+                } catch (err) {
+                    console.error(`[Call ${callId}] Error processing Gemini message:`, err);
+                }
+            },
+            onerror: (e) => {
+                console.error(`[Call ${callId}] Gemini session error:`, e.error);
+            },
+            onclose: (e) => {
+                console.log(`[Call ${callId}] Gemini session closed: ${e.code} ${e.reason}`);
+                session = null;
+            }
+        }
+    }).then((s) => {
+        session = s;
+    }).catch((err) => {
+        console.error(`[Call ${callId}] Failed to connect to Gemini:`, err);
+        ws.close(1011, 'Failed to connect to Gemini');
+    });
+
+    // ─── Receive audio from SIP Gateway → Gemini ────────────────────────
 
     ws.on('message', (message) => {
         try {
             const data = JSON.parse(message.toString());
 
-            if (data.event === 'audio' || data.event === 'media') {
+            if ((data.event === 'audio' || data.event === 'media') && session) {
                 const audioPayload = data.audio || (data.media ? data.media.payload : null);
 
-                if (audioPayload && geminiWs && geminiWs.readyState === WebSocket.OPEN && isSetupComplete) {
+                if (audioPayload) {
                     const payload = Buffer.from(audioPayload, 'base64');
                     const pcm = muLawToPcm(payload);
                     const resampled = resample8To16(pcm);
 
-                    const inputMessage = {
-                        realtimeInput: {
-                            mediaChunks: [{
-                                mimeType: "audio/pcm;rate=16000",
-                                data: resampled.toString('base64')
-                            }]
+                    session.sendRealtimeInput({
+                        audio: {
+                            mimeType: 'audio/pcm;rate=16000',
+                            data: resampled.toString('base64')
                         }
-                    };
-                    geminiWs.send(JSON.stringify(inputMessage));
+                    });
                 }
             }
         } catch (err) {
@@ -213,7 +198,7 @@ export function setupSipBridge(ws: WebSocket) {
 
     ws.on('close', () => {
         console.log(`[Call ${callId}] SIP Gateway WebSocket connection closed`);
-        if (geminiWs) geminiWs.close();
+        if (session) session.close();
         // Run analysis asynchronously after the call ends
         runPostCallAnalysis();
     });

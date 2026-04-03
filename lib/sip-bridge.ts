@@ -62,35 +62,42 @@ export function setupSipBridge(ws: WebSocket) {
 
     // ─── Connect to Gemini Live API ─────────────────────────────────────
 
-    console.log(`[Call ${callId}] Version v2.0.2 - Connecting to Gemini Live API...`);
+    console.log(`[Call ${callId}] Version v2.0.3 - Connecting to Gemini Live API...`);
+    const MODEL_ID = process.env.GEMINI_MODEL || 'gemini-3.1-flash-live-preview';
+    const modelWithPrefix = MODEL_ID.startsWith('models/') ? MODEL_ID : `models/${MODEL_ID}`;
+
+    console.log(`[Call ${callId}] Model: ${modelWithPrefix}`);
     console.log(`[Call ${callId}] Config:`, JSON.stringify({
-        model: process.env.GEMINI_MODEL || 'gemini-3.1-flash-live-preview',
-        config: {
+        generationConfig: {
             responseModalities: [Modality.AUDIO, Modality.TEXT],
+            thinkingLevel: 'minimal',
             voiceName: process.env.VOICE_NAME || 'Zephyr'
         }
     }, null, 2));
 
 
-    const MODEL_ID = process.env.GEMINI_MODEL || 'gemini-3.1-flash-live-preview';
-    const modelWithPrefix = MODEL_ID.startsWith('models/') ? MODEL_ID : `models/${MODEL_ID}`;
-
     ai.live.connect({
         model: modelWithPrefix,
         config: {
-            responseModalities: [Modality.AUDIO, Modality.TEXT],
-            thinkingLevel: 'minimal',
-            speechConfig: {
-                voiceConfig: {
-                    prebuiltVoiceConfig: {
-                        voiceName: process.env.VOICE_NAME || 'Zephyr'
+            generationConfig: {
+                responseModalities: [Modality.AUDIO, Modality.TEXT],
+                thinkingLevel: 'minimal',
+                speechConfig: {
+                    voiceConfig: {
+                        prebuiltVoiceConfig: {
+                            voiceName: process.env.VOICE_NAME || 'Zephyr'
+                        }
                     }
-                }
+                },
             },
-            systemInstruction: process.env.VOICE_PROMPT || 'Eres QuantumIA, el consultor de IA de élite. Responde de forma profesional, amable y concisa. Habla siempre en español de Colombia.',
+            systemInstruction: {
+                role: 'system',
+                parts: [{
+                    text: process.env.VOICE_PROMPT || 'Eres QuantumIA, el consultor de IA de élite. Responde de forma profesional, amable y concisa. Habla siempre en español de Colombia.'
+                }]
+            },
             tools: getToolDeclarations(),
-            outputAudioTranscription: {},
-            inputAudioTranscription: {},
+            // Remove audio transcription objects for now to simplify setup
         } as any,
         callbacks: {
             onopen: () => {

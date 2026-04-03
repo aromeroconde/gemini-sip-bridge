@@ -11,7 +11,7 @@ services:
 
   # Gemini SIP Bridge
   gemini_bridge:
-    image: gemini-bridge:latest
+    image: aromeroconde/gemini-sip-bridge:latest
     container_name: gemini_bridge
     network_mode: host
     environment:

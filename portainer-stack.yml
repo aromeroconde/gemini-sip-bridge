@@ -3,6 +3,10 @@ version: '3.8'
 services:
   drachtio_server:
     image: drachtio/drachtio-server:latest
+    ports:
+      - "5060:5060/udp"
+      - "5060:5060/tcp"
+      - "9022:9022"
     environment:
       DRACHTIO_SECRET: cymru
       DRACHTIO_LOGLEVEL: info

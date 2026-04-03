@@ -22,8 +22,8 @@ services:
              git clone https://$${GIT_TOKEN}@github.com/aromeroconde/gemini-sip-bridge.git /temp_code && 
              cp -a /temp_code/. /app/ && 
              rm -rf /temp_code && 
-             npm install && 
-             npm run build && 
+             npm install --include=dev && 
+             npx tsc && 
              node dist/index.js"
     environment:
       NODE_ENV: production

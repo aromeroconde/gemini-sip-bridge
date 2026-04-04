@@ -69,7 +69,7 @@ export function setupSipBridge(ws: WebSocket) {
     ai.live.connect({
         model: MODEL_ID,
         config: {
-            responseModalities: [Modality.AUDIO, Modality.TEXT],
+            responseModalities: [Modality.AUDIO],
             speechConfig: {
                 voiceConfig: {
                     prebuiltVoiceConfig: {
@@ -155,10 +155,11 @@ export function setupSipBridge(ws: WebSocket) {
                 }
             },
             onerror: (e) => {
-                console.error(`[Call ${callId}] Gemini session error:`, e.error);
+                console.error(`[Call ${callId}] Gemini session error:`, JSON.stringify(e));
+                if (e.error) console.error(`[Call ${callId}] Error detail:`, JSON.stringify(e.error));
             },
             onclose: (e) => {
-                console.log(`[Call ${callId}] Gemini session closed: ${e.code} ${e.reason}`);
+                console.log(`[Call ${callId}] Gemini session closed: code=${e.code} reason=${e.reason} wasClean=${e.wasClean}`);
                 session = null;
             }
         }

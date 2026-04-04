@@ -146,6 +146,8 @@ function bridgeCallToGemini(
 export function startSipGateway() {
     console.log(`Connecting to drachtio-server at ${DRACHTIO_HOST}:${DRACHTIO_PORT}...`);
 
+    let lastErrorLog = 0;
+
     try {
         srf.connect({
             host: DRACHTIO_HOST,
@@ -168,7 +170,12 @@ export function startSipGateway() {
     });
 
     srf.on('error', (err) => {
-        // Silence repeated connection errors - drachtio-srf retries automatically
+        // Log connection errors at most once every 10 seconds
+        const now = Date.now();
+        if (now - lastErrorLog > 10000) {
+            console.log(`[SIP Gateway] Waiting for drachtio-server at ${DRACHTIO_HOST}:${DRACHTIO_PORT}...`);
+            lastErrorLog = now;
+        }
     });
 
     // Manejo REGISTER y OPTIONS

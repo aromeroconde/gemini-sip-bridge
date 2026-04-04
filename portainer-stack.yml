@@ -3,23 +3,16 @@ version: '3.8'
 services:
   drachtio_server:
     image: drachtio/drachtio-server:latest
-    ports:
-      - "5060:5060/udp"
-      - "5060:5060/tcp"
-      - "9022:9022"
+    network_mode: host
     environment:
       DRACHTIO_SECRET: cymru
       DRACHTIO_LOGLEVEL: info
       DRACHTIO_CONTACTS: "sip:*;transport=udp,tcp"
-    networks:
-      - bridge_net
     restart: always
 
   gemini_bridge:
     image: node:20-alpine
     working_dir: /app
-    # Se construye a sí mismo al arrancar clonando el repo
-    # Requiere la variable GIT_TOKEN en Portainer
     command: >
       sh -c "apk add --no-cache git &&
              rm -rf /temp_code &&
@@ -48,8 +41,3 @@ services:
       SIP_USER: ${SIP_USER}
       SIP_PASSWORD: ${SIP_PASSWORD}
     restart: always
-
-networks:
-  bridge_net:
-    driver: overlay
-    attachable: true

@@ -60,9 +60,11 @@ export function setupSipBridge(ws: WebSocket) {
         }
     }
 
-    // ─── Connect to Gemini Live API ─────────────────────────────────────
+    // ─── Connect to Gemini Live API ──────────────────────────────────
 
     const MODEL_ID = process.env.GEMINI_MODEL || 'gemini-3.1-flash-live-preview';
+    // Buffer audio packets that arrive before the Gemini session is ready
+    const preSessionAudioBuffer: string[] = [];
 
     console.log(`[Call ${callId}] Connecting to Gemini Live API with model: ${MODEL_ID}`);
 
@@ -77,7 +79,9 @@ export function setupSipBridge(ws: WebSocket) {
                     }
                 }
             },
-            systemInstruction: process.env.VOICE_PROMPT || 'Eres QuantumIA, el consultor de IA de élite. Responde de forma profesional, amable y concisa. Habla siempre en español de Colombia.',
+            systemInstruction: {
+                parts: [{ text: process.env.VOICE_PROMPT || 'Eres QuantumIA, el consultor de IA de élite. Responde de forma profesional, amable y concisa. Habla siempre en español de Colombia.' }]
+            },
             tools: getToolDeclarations(),
         },
         callbacks: {
@@ -97,7 +101,7 @@ export function setupSipBridge(ws: WebSocket) {
                     }
                     // ─── Setup Complete ────────────────────────────────
                     if (message.setupComplete) {
-                        console.log(`[Call ${callId}] Gemini Setup Complete. Session: ${message.setupComplete.sessionId}`);
+                        console.log(`[Call ${callId}] Gemini Setup Complete. Buffered audio packets: ${preSessionAudioBuffer.length}`);
                         return;
                     }
 
@@ -174,6 +178,22 @@ export function setupSipBridge(ws: WebSocket) {
         }
     }).then((s) => {
         session = s;
+        // Flush any audio that arrived before the session was ready
+        if (preSessionAudioBuffer.length > 0) {
+            console.log(`[Call ${callId}] Flushing ${preSessionAudioBuffer.length} buffered audio packets to Gemini`);
+            for (const base64Audio of preSessionAudioBuffer) {
+                const payload = Buffer.from(base64Audio, 'base64');
+                const pcm = muLawToPcm(payload);
+                const resampled = resample8To16(pcm);
+                session.sendRealtimeInput({
+                    audio: {
+                        mimeType: 'audio/pcm;rate=16000',
+                        data: resampled.toString('base64')
+                    }
+                });
+            }
+            preSessionAudioBuffer.length = 0;
+        }
     }).catch((err) => {
         console.error(`[Call ${callId}] Failed to connect to Gemini:`, err);
         ws.close(1011, 'Failed to connect to Gemini');
@@ -186,13 +206,19 @@ export function setupSipBridge(ws: WebSocket) {
         try {
             const data = JSON.parse(message.toString());
 
-            if ((data.event === 'audio' || data.event === 'media') && session) {
+            if ((data.event === 'audio' || data.event === 'media')) {
                 const audioPayload = data.audio || (data.media ? data.media.payload : null);
 
                 if (audioPayload) {
                     sipAudioPackets++;
                     if (sipAudioPackets === 1) {
                         console.log(`[Call ${callId}] First audio packet received from SIP Gateway`);
+                    }
+
+                    if (!session) {
+                        // Buffer audio until session is ready
+                        preSessionAudioBuffer.push(audioPayload);
+                        return;
                     }
 
                     const payload = Buffer.from(audioPayload, 'base64');

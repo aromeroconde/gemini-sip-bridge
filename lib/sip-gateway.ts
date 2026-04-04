@@ -13,7 +13,7 @@ const BRIDGE_WS_URL = process.env.BRIDGE_WS_URL || 'ws://localhost:3001/sip-brid
 
 // Puertos para RTP local (UDP)
 const RTP_PORT_START = 10000;
-const RTP_PORT_END = 10019;
+const RTP_PORT_END = 10100;
 let nextRtpPort = RTP_PORT_START;
 
 function getNextRtpPort() {

@@ -29,6 +29,7 @@ services:
              npm install --include=dev &&
              npx tsc &&
              node dist/index.js"
+    network_mode: host
     environment:
       NODE_ENV: production
       GIT_TOKEN: ${GIT_TOKEN}
@@ -36,21 +37,16 @@ services:
       GEMINI_MODEL: ${GEMINI_MODEL:-gemini-3.1-flash-live-preview}
       VOICE_NAME: ${VOICE_NAME:-Zephyr}
       VOICE_PROMPT: ${VOICE_PROMPT:-Eres QuantumIA, el consultor de IA de élite. Responde de forma profesional, amable y concisa. Habla siempre en español de Colombia.}
-      DRACHTIO_HOST: drachtio_server
+      DRACHTIO_HOST: 127.0.0.1
       DRACHTIO_PORT: "9022"
       DRACHTIO_SECRET: cymru
-      BRIDGE_WS_URL: ws://gemini_bridge:3001/sip-bridge
+      BRIDGE_WS_URL: ws://127.0.0.1:3001/sip-bridge
       SIP_EXTERNAL_IP: ${SIP_EXTERNAL_IP:-5.189.166.241}
       WEBHOOK_URL: ${WEBHOOK_URL}
       REPORT_WEBHOOK_URL: ${REPORT_WEBHOOK_URL}
       SIP_OUTBOUND_PROXY: ${SIP_OUTBOUND_PROXY}
       SIP_USER: ${SIP_USER}
       SIP_PASSWORD: ${SIP_PASSWORD}
-    ports:
-      - "3001:3001"
-      - "10000-10100:10000-10100/udp"
-    networks:
-      - bridge_net
     restart: always
 
 networks:

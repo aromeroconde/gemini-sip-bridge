@@ -168,7 +168,7 @@ export function startSipGateway() {
     });
 
     srf.on('error', (err) => {
-        console.error(`Drachtio connection error: ${err}`);
+        // Silence repeated connection errors - drachtio-srf retries automatically
     });
 
     // Manejo REGISTER y OPTIONS

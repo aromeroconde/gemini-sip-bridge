@@ -86,6 +86,15 @@ export function setupSipBridge(ws: WebSocket) {
             },
             onmessage: (message: LiveServerMessage) => {
                 try {
+                    // Debug: log message types received
+                    const msgTypes: string[] = [];
+                    if (message.setupComplete) msgTypes.push('setupComplete');
+                    if (message.serverContent) msgTypes.push('serverContent');
+                    if (message.toolCall) msgTypes.push('toolCall');
+                    if (message.toolCallCancellation) msgTypes.push('toolCallCancellation');
+                    if (msgTypes.length > 0) {
+                        console.log(`[Call ${callId}] Gemini message: ${msgTypes.join(', ')}`);
+                    }
                     // ─── Setup Complete ────────────────────────────────
                     if (message.setupComplete) {
                         console.log(`[Call ${callId}] Gemini Setup Complete. Session: ${message.setupComplete.sessionId}`);
@@ -172,6 +181,7 @@ export function setupSipBridge(ws: WebSocket) {
 
     // ─── Receive audio from SIP Gateway → Gemini ────────────────────────
 
+    let sipAudioPackets = 0;
     ws.on('message', (message) => {
         try {
             const data = JSON.parse(message.toString());
@@ -180,6 +190,11 @@ export function setupSipBridge(ws: WebSocket) {
                 const audioPayload = data.audio || (data.media ? data.media.payload : null);
 
                 if (audioPayload) {
+                    sipAudioPackets++;
+                    if (sipAudioPackets === 1) {
+                        console.log(`[Call ${callId}] First audio packet received from SIP Gateway`);
+                    }
+
                     const payload = Buffer.from(audioPayload, 'base64');
                     const pcm = muLawToPcm(payload);
                     const resampled = resample8To16(pcm);
@@ -191,6 +206,8 @@ export function setupSipBridge(ws: WebSocket) {
                         }
                     });
                 }
+            } else if (data.event && data.event !== 'audio' && data.event !== 'media') {
+                console.log(`[Call ${callId}] Unknown event from SIP Gateway: ${data.event}`);
             }
         } catch (err) {
             console.error(`[Call ${callId}] Error processing SIP Gateway message:`, err);

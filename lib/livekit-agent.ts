@@ -104,7 +104,11 @@ async function executeWebhook(toolName: string, args: Record<string, any>, callI
 
 export default defineAgent({
     prewarm: async (proc: JobProcess) => {
-        (proc.userData as any).vad = await silero.VAD.load();
+        (proc.userData as any).vad = await silero.VAD.load({
+            minSpeechDuration: 0.1,
+            minSilenceDuration: 0.2,
+            prefixPaddingDuration: 0.1,
+        });
     },
 
     entry: async (ctx: JobContext) => {
@@ -119,6 +123,10 @@ export default defineAgent({
             voice: process.env.VOICE_NAME || 'Zephyr',
             instructions: process.env.VOICE_PROMPT || 'Eres QuantumIA, el consultor de IA de élite. Responde de forma profesional, amable y concisa. Habla siempre en español de Colombia.',
             apiKey: process.env.GOOGLE_API_KEY,
+            thinkingConfig: {
+                includeThoughts: true,
+                thinkingLevel: 'low',
+            } as any,
         });
 
         const agent = new voice.Agent({
@@ -133,16 +141,24 @@ export default defineAgent({
         const session = new voice.AgentSession({
             vad: (ctx.proc.userData as any).vad,
             llm: model,
+            turnHandling: {
+                endpointing: {
+                    minDelay: 300, // Reduce silence wait time
+                }
+            }
         });
 
         await session.start({ agent, room: ctx.room });
 
-        console.log(`[Call ${callId}] Agent session started. Generating greeting...`);
+        console.log(`[Call ${callId}] Agent session started. Waiting for participant to trigger proactive greeting...`);
 
-        // Agent speaks first — greet caller immediately
-        session.generateReply({
-            instructions: 'Saluda al usuario brevemente y pregúntale en qué puedes ayudarle.',
-        });
+        // Agent speaks first — greet caller after a short delay to ensure connection is stable
+        setTimeout(() => {
+            console.log(`[Call ${callId}] Triggering proactive greeting...`);
+            session.generateReply({
+                instructions: 'SISTEMA: Inicia la conversación ahora mismo. Saluda cordialmente como QuantumIA y pregunta en qué puedes ayudar. Sé muy breve.',
+            });
+        }, 1000);
 
         // Log when a participant connects
         ctx.room.on('participantConnected', (participant) => {

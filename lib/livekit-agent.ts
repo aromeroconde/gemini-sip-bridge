@@ -123,10 +123,6 @@ export default defineAgent({
             voice: process.env.VOICE_NAME || 'Zephyr',
             instructions: process.env.VOICE_PROMPT || 'Eres QuantumIA, el consultor de IA de élite. Responde de forma profesional, amable y concisa. Habla siempre en español de Colombia.',
             apiKey: process.env.GOOGLE_API_KEY,
-            thinkingConfig: {
-                includeThoughts: true,
-                thinkingLevel: 'low',
-            } as any,
         });
 
         const agent = new voice.Agent({
@@ -154,16 +150,16 @@ export default defineAgent({
 
         // Agent speaks first — greet caller after a short delay
         setTimeout(() => {
-            console.log(`[Call ${callId}] Triggering proactive greeting bypass...`);
             const realtimeSession = (session as any).activity?.realtimeSession;
             if (realtimeSession && typeof realtimeSession.sendRealtimeInput === 'function') {
+                console.log(`[Call ${callId}] Sending proactive greeting trigger via sendRealtimeInput...`);
                 realtimeSession.sendRealtimeInput({
-                    text: 'SISTEMA: Inicia la conversación ahora mismo. Saluda cordialmente como QuantumIA y pregunta en qué puedes ayudar. Sé muy breve.'
+                    text: '¡HOLA! (Saluda ahora mismo como QuantumIA, de forma muy breve)'
                 });
             } else {
-                console.warn(`[Call ${callId}] Realtime session not available for proactive greeting`);
+                console.error(`[Call ${callId}] FAILED to trigger proactive greeting: realtimeSession not found or incompatible. session.activity: ${!!(session as any).activity}`);
             }
-        }, 500); // Reduced delay to 500ms for lower latency
+        }, 1000); // 1s delay to ensure room/session is fully stabilized
 
         // Log when a participant connects
         ctx.room.on('participantConnected', (participant) => {

@@ -12,7 +12,7 @@ services:
              rm -rf /temp_code &&
              npm install --include=dev &&
              npx tsc &&
-             node dist/agent.js dev"
+             node dist/agent.js dev --url $${LIVEKIT_URL} --api-key $${LIVEKIT_API_KEY} --api-secret $${LIVEKIT_API_SECRET}"
     environment:
       NODE_ENV: production
       GIT_TOKEN: ${GIT_TOKEN}

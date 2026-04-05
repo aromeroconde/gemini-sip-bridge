@@ -1,15 +1,6 @@
 version: '3.8'
 
 services:
-  drachtio_server:
-    image: drachtio/drachtio-server:latest
-    network_mode: host
-    environment:
-      DRACHTIO_SECRET: cymru
-      DRACHTIO_LOGLEVEL: info
-      DRACHTIO_CONTACTS: "sip:*;transport=udp,tcp"
-    restart: always
-
   gemini_bridge:
     image: node:20-alpine
     working_dir: /app
@@ -21,8 +12,7 @@ services:
              rm -rf /temp_code &&
              npm install --include=dev &&
              npx tsc &&
-             node dist/index.js"
-    network_mode: host
+             node dist/agent.js dev"
     environment:
       NODE_ENV: production
       GIT_TOKEN: ${GIT_TOKEN}
@@ -30,19 +20,9 @@ services:
       GEMINI_MODEL: ${GEMINI_MODEL:-gemini-3.1-flash-live-preview}
       VOICE_NAME: ${VOICE_NAME:-Zephyr}
       VOICE_PROMPT: ${VOICE_PROMPT:-Eres QuantumIA, el consultor de IA de élite. Responde de forma profesional, amable y concisa. Habla siempre en español de Colombia.}
-      DRACHTIO_HOST: 127.0.0.1
-      DRACHTIO_PORT: "9022"
-      DRACHTIO_SECRET: cymru
-      BRIDGE_WS_URL: ws://127.0.0.1:3001/sip-bridge
-      SIP_EXTERNAL_IP: ${SIP_EXTERNAL_IP:-5.189.166.241}
+      LIVEKIT_URL: ${LIVEKIT_URL}
+      LIVEKIT_API_KEY: ${LIVEKIT_API_KEY}
+      LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET}
       WEBHOOK_URL: ${WEBHOOK_URL}
       REPORT_WEBHOOK_URL: ${REPORT_WEBHOOK_URL}
-      SIP_OUTBOUND_PROXY: ${SIP_OUTBOUND_PROXY}
-      SIP_USER: ${SIP_USER}
-      SIP_PASSWORD: ${SIP_PASSWORD}
     restart: always
-
-networks:
-  default:
-    driver: overlay
-    attachable: true

@@ -2,18 +2,10 @@ version: '3.8'
 
 services:
   gemini_bridge:
-    image: node:20-slim
-    working_dir: /app
-    command: >
-      sh -c "apt-get update && apt-get install -y git python3 make g++ &&
-             rm -rf /temp_code &&
-             git clone https://$${GIT_TOKEN}@github.com/aromeroconde/gemini-sip-bridge.git /temp_code &&
-             cp -a /temp_code/. /app/ &&
-             rm -rf /temp_code &&
-             npm install --include=dev &&
-             rm -rf dist &&
-             npx tsc &&
-             node dist/agent.js dev --url $${LIVEKIT_URL} --api-key $${LIVEKIT_API_KEY} --api-secret $${LIVEKIT_API_SECRET}"
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: gemini-bridge-local:latest
     environment:
       NODE_ENV: production
       GIT_TOKEN: ${GIT_TOKEN}

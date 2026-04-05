@@ -15,4 +15,17 @@ services:
       LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET}
       WEBHOOK_URL: ${WEBHOOK_URL}
       REPORT_WEBHOOK_URL: ${REPORT_WEBHOOK_URL}
-    restart: always
+    deploy:
+      mode: replicated
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+        window: 120s
+    command: ["node", "dist/agent.js", "dev"]
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"

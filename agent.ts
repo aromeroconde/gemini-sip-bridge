@@ -7,6 +7,8 @@
 import { cli, WorkerOptions } from '@livekit/agents';
 import { fileURLToPath } from 'node:url';
 import dotenv from 'dotenv';
+import path from 'node:path';
+import fs from 'node:fs';
 
 dotenv.config();
 
@@ -20,6 +22,16 @@ if (!LIVEKIT_API_KEY || !LIVEKIT_API_SECRET) {
 
 console.log(`Starting agent worker on ${LIVEKIT_URL || 'ws://localhost:7880'}...`);
 
-const agentFile = fileURLToPath(new URL('./lib/livekit-agent.ts', import.meta.url).href);
+// Resolve agent file path dynamically
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+// Check if we are running from dist or source
+let agentFile = path.join(__dirname, 'lib', 'livekit-agent.js');
+if (!fs.existsSync(agentFile)) {
+    agentFile = path.join(__dirname, 'lib', 'livekit-agent.ts');
+}
+
+console.log(`Loading agent from: ${agentFile}`);
 
 cli.runApp(new WorkerOptions({ agent: agentFile, agentName: 'gemini-sip-bridge' }));

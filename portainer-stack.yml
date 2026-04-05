@@ -2,10 +2,7 @@ version: '3.8'
 
 services:
   gemini_bridge:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    image: gemini-bridge-local:latest
+    image: ghcr.io/aromeroconde/gemini-sip-bridge:latest
     environment:
       NODE_ENV: production
       GIT_TOKEN: ${GIT_TOKEN}

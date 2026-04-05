@@ -151,15 +151,18 @@ export default defineAgent({
         // Agent speaks first — greet caller after a short delay
         setTimeout(() => {
             const realtimeSession = (session as any).activity?.realtimeSession;
-            if (realtimeSession && typeof realtimeSession.sendRealtimeInput === 'function') {
-                console.log(`[Call ${callId}] Sending proactive greeting trigger via sendRealtimeInput...`);
-                realtimeSession.sendRealtimeInput({
-                    text: '¡HOLA! (Saluda ahora mismo como QuantumIA, de forma muy breve)'
+            if (realtimeSession && typeof (realtimeSession as any).sendClientEvent === 'function') {
+                console.log(`[Call ${callId}] Injecting proactive greeting via sendClientEvent (realtime_input)...`);
+                (realtimeSession as any).sendClientEvent({
+                    type: 'realtime_input',
+                    value: {
+                        text: '¡HOLA! (Saluda ahora mismo como QuantumIA, de forma muy breve)'
+                    }
                 });
             } else {
-                console.error(`[Call ${callId}] FAILED to trigger proactive greeting: realtimeSession not found or incompatible. session.activity: ${!!(session as any).activity}`);
+                console.error(`[Call ${callId}] FAILED to trigger proactive greeting: sendClientEvent not found. session.activity: ${!!(session as any).activity}`);
             }
-        }, 1000); // 1s delay to ensure room/session is fully stabilized
+        }, 1200); // 1.2s delay to ensure room/session is fully stabilized
 
         // Log when a participant connects
         ctx.room.on('participantConnected', (participant) => {

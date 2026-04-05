@@ -152,13 +152,18 @@ export default defineAgent({
 
         console.log(`[Call ${callId}] Agent session started. Waiting for participant to trigger proactive greeting...`);
 
-        // Agent speaks first — greet caller after a short delay to ensure connection is stable
+        // Agent speaks first — greet caller after a short delay
         setTimeout(() => {
-            console.log(`[Call ${callId}] Triggering proactive greeting...`);
-            session.generateReply({
-                instructions: 'SISTEMA: Inicia la conversación ahora mismo. Saluda cordialmente como QuantumIA y pregunta en qué puedes ayudar. Sé muy breve.',
-            });
-        }, 1000);
+            console.log(`[Call ${callId}] Triggering proactive greeting bypass...`);
+            const realtimeSession = (session as any).activity?.realtimeSession;
+            if (realtimeSession && typeof realtimeSession.sendRealtimeInput === 'function') {
+                realtimeSession.sendRealtimeInput({
+                    text: 'SISTEMA: Inicia la conversación ahora mismo. Saluda cordialmente como QuantumIA y pregunta en qué puedes ayudar. Sé muy breve.'
+                });
+            } else {
+                console.warn(`[Call ${callId}] Realtime session not available for proactive greeting`);
+            }
+        }, 500); // Reduced delay to 500ms for lower latency
 
         // Log when a participant connects
         ctx.room.on('participantConnected', (participant) => {

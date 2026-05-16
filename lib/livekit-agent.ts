@@ -127,6 +127,22 @@ const precio = llm.tool({
     },
 });
 
+const endCall = llm.tool({
+    description: 'Cuelga la llamada y cierra la sesión. Llamar ÚNICAMENTE cuando el cliente se haya despedido y la conversación haya terminado completamente.',
+    parameters: z.object({}),
+    execute: async () => {
+        const callId = (globalThis as any).__currentCallId || 'unknown';
+        console.log(`[Call ${callId}] Tool: end_call — colgando llamada`);
+        const disconnect = (globalThis as any).__disconnectRoom;
+        if (typeof disconnect === 'function') {
+            setTimeout(disconnect, 2000); // dar 2s para que Carolina termine de hablar
+        } else {
+            console.error(`[Call ${callId}] end_call: __disconnectRoom no disponible`);
+        }
+        return JSON.stringify({ success: true });
+    },
+});
+
 const transferToHuman = llm.tool({
     description: 'Transfiere la llamada a un agente humano. Usa esta herramienta cuando el usuario insista en hablar con una persona real o cuando no puedas resolver su problema.',
     parameters: z.object({
@@ -208,9 +224,15 @@ export default defineAgent({
             if (silenceTimeout) { clearTimeout(silenceTimeout); silenceTimeout = null; }
         };
 
+        (globalThis as any).__disconnectRoom = () => {
+            console.log(`[Call ${callId}] end_call: desconectando sala`);
+            ctx.room.disconnect();
+        };
+
         ctx.addShutdownCallback(async () => {
             console.log(`[Call ${callId}] Shutdown callback: clearing timers`);
             clearTimers();
+            delete (globalThis as any).__disconnectRoom;
         });
 
         hardTimeout = setTimeout(() => {
@@ -252,6 +274,7 @@ export default defineAgent({
                 datos_cliente: datosCliente,
                 precio: precio,
                 transfer_to_human: transferToHuman,
+                end_call: endCall,
             },
         });
 

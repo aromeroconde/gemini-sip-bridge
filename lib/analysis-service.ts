@@ -33,7 +33,7 @@ export interface CallAnalysis {
 }
 
 const ANALYSIS_PROMPT = fs.readFileSync(
-    path.join(__dirname, '../prompts/analysis_prompt.txt'),
+    path.join(__dirname, '../../prompts/analysis_prompt.txt'),
     'utf-8'
 );
 

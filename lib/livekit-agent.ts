@@ -24,7 +24,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 function loadVoicePrompt(): string {
     if (process.env.VOICE_PROMPT) return process.env.VOICE_PROMPT;
-    const file = path.join(__dirname, '../prompts/voice_prompt.txt');
+    const file = path.join(__dirname, '../../prompts/voice_prompt.txt');
     return fs.readFileSync(file, 'utf-8').trim();
 }
 

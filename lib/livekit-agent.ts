@@ -166,6 +166,12 @@ async function executeWebhook(toolName: string, args: Record<string, any>, callI
     }
 }
 
+// ─── Lifecycle Constants ─────────────────────────────────────────────────
+
+const HARD_TIMEOUT_MS = 20 * 60 * 1000;     // 20 min max call duration
+const SILENCE_TIMEOUT_MS = 5 * 60 * 1000;   // 5 min inactivity cutoff
+const RECONNECT_DELAYS_MS = [1000, 2000, 4000]; // backoff: 1s → 2s → 4s
+
 // ─── Agent Definition ────────────────────────────────────────────────────
 
 export default defineAgent({
@@ -186,7 +192,47 @@ export default defineAgent({
 
         const voicePrompt = loadVoicePrompt();
 
-        const model = new google.beta.realtime.RealtimeModel({
+        // ── Timer management ──────────────────────────────────────────────
+        let hardTimeout: ReturnType<typeof setTimeout> | null = null;
+        let silenceTimeout: ReturnType<typeof setTimeout> | null = null;
+
+        const clearTimers = () => {
+            if (hardTimeout) { clearTimeout(hardTimeout); hardTimeout = null; }
+            if (silenceTimeout) { clearTimeout(silenceTimeout); silenceTimeout = null; }
+        };
+
+        ctx.addShutdownCallback(async () => {
+            console.log(`[Call ${callId}] Shutdown callback: clearing timers`);
+            clearTimers();
+        });
+
+        hardTimeout = setTimeout(() => {
+            const elapsed = Math.round((Date.now() - callStartTime) / 1000);
+            console.log(`[Call ${callId}] Hard timeout after ${elapsed}s. Disconnecting.`);
+            clearTimers();
+            ctx.room.disconnect();
+        }, HARD_TIMEOUT_MS);
+
+        const resetSilenceTimer = () => {
+            if (silenceTimeout) clearTimeout(silenceTimeout);
+            silenceTimeout = setTimeout(() => {
+                const elapsed = Math.round((Date.now() - callStartTime) / 1000);
+                console.log(`[Call ${callId}] Silence timeout after ${elapsed}s. Disconnecting.`);
+                clearTimers();
+                ctx.room.disconnect();
+            }, SILENCE_TIMEOUT_MS);
+        };
+        resetSilenceTimer();
+
+        ctx.room.on('activeSpeakersChanged', resetSilenceTimer);
+        ctx.room.on('dataReceived', resetSilenceTimer);
+        ctx.room.on('participantConnected', (participant) => {
+            console.log(`[Call ${callId}] Participant connected: ${participant.identity}`);
+            resetSilenceTimer();
+        });
+
+        // ── Agent + model factory ─────────────────────────────────────────
+        const createModel = () => new google.beta.realtime.RealtimeModel({
             model: process.env.GEMINI_MODEL || 'gemini-3.1-flash-live-preview',
             voice: process.env.VOICE_NAME || 'Zephyr',
             instructions: voicePrompt,
@@ -202,64 +248,103 @@ export default defineAgent({
             },
         });
 
-        const session = new voice.AgentSession({
-            vad: (ctx.proc.userData as any).vad,
-            llm: model,
-            turnHandling: {
-                endpointing: {
-                    minDelay: 300, // Reduce silence wait time
-                }
-            }
-        });
-
-        await session.start({ agent, room: ctx.room });
-
-        // Extract caller phone AFTER session.start() so participants are loaded
-        const allParticipants = [...ctx.room.remoteParticipants.values()];
-        console.log(`[Call ${callId}] Participants in room: ${allParticipants.length}`);
-        allParticipants.forEach(p => {
-            console.log(`[Call ${callId}] Participant ${p.identity} attributes:`, JSON.stringify(p.attributes));
-        });
-        const sipParticipant = allParticipants.find(p => p.attributes['sip.phoneNumber']);
-        const callerPhone = sipParticipant
-            ? sipParticipant.attributes['sip.phoneNumber']
-            : '';
-        (globalThis as any).__callerPhone = callerPhone;
-        console.log(`[Call ${callId}] Caller phone: ${callerPhone || '(not available)'}`);
-
-        console.log(`[Call ${callId}] Agent session started. Waiting for participant to trigger proactive greeting...`);
-
-        // Agent speaks first — greet caller after a short delay
-        setTimeout(() => {
-            const realtimeSession = (session as any).activity?.realtimeSession;
-            if (realtimeSession && typeof (realtimeSession as any).sendClientEvent === 'function') {
-                console.log(`[Call ${callId}] Injecting proactive greeting via sendClientEvent (realtime_input)...`);
-                (realtimeSession as any).sendClientEvent({
-                    type: 'realtime_input',
-                    value: {
-                        text: '[INICIO DE LLAMADA] Llama ahora a la función datos_cliente y luego saluda al cliente como Carolina de Advanced Health.'
-                    }
-                });
-            } else {
-                console.error(`[Call ${callId}] FAILED to trigger proactive greeting: sendClientEvent not found. session.activity: ${!!(session as any).activity}`);
-            }
-        }, 1200); // 1.2s delay to ensure room/session is fully stabilized
-
-        // Log when a participant connects
-        ctx.room.on('participantConnected', (participant) => {
-            console.log(`[Call ${callId}] Participant connected: ${participant.identity}`);
-        });
-
-        // Run until the room closes
-        await new Promise<void>((resolve) => {
-            ctx.room.on('disconnected', () => {
+        // ── Room close signal (shared across reconnects) ──────────────────
+        let roomClosed = false;
+        const roomDonePromise = new Promise<void>((resolve) => {
+            ctx.room.once('disconnected', () => {
+                roomClosed = true;
                 const duration = Math.round((Date.now() - callStartTime) / 1000);
                 console.log(`[Call ${callId}] Room disconnected after ${duration}s`);
                 resolve();
             });
         });
 
-        // Post-call analysis (fire and forget)
+        // ── Session runner ────────────────────────────────────────────────
+        const runSession = async (isReconnect: boolean): Promise<'reconnect' | 'done'> => {
+            const model = createModel();
+            const session = new voice.AgentSession({
+                vad: (ctx.proc.userData as any).vad,
+                llm: model,
+                turnHandling: { endpointing: { minDelay: 300 } }
+            });
+
+            try {
+                await session.start({ agent, room: ctx.room });
+            } catch (err) {
+                console.error(`[Call ${callId}] session.start failed (reconnect=${isReconnect}):`, err);
+                return roomClosed ? 'done' : 'reconnect';
+            }
+
+            console.log(`[Call ${callId}] Session started (reconnect=${isReconnect})`);
+
+            if (!isReconnect) {
+                const allParticipants = [...ctx.room.remoteParticipants.values()];
+                console.log(`[Call ${callId}] Participants: ${allParticipants.length}`);
+                allParticipants.forEach(p => {
+                    console.log(`[Call ${callId}] Participant ${p.identity} attrs:`, JSON.stringify(p.attributes));
+                });
+                const sipParticipant = allParticipants.find(p => p.attributes['sip.phoneNumber']);
+                const callerPhone = sipParticipant ? sipParticipant.attributes['sip.phoneNumber'] : '';
+                (globalThis as any).__callerPhone = callerPhone;
+                console.log(`[Call ${callId}] Caller phone: ${callerPhone || '(not available)'}`);
+            }
+
+            const triggerText = isReconnect
+                ? '[RECONEXIÓN] La sesión fue restaurada. Continúa la conversación de manera natural sin repetir el saludo.'
+                : '[INICIO DE LLAMADA] Llama ahora a la función datos_cliente y luego saluda al cliente como Carolina de Advanced Health.';
+
+            setTimeout(() => {
+                const realtimeSession = (session as any).activity?.realtimeSession;
+                if (realtimeSession?.sendClientEvent) {
+                    console.log(`[Call ${callId}] Injecting trigger (reconnect=${isReconnect})...`);
+                    (realtimeSession as any).sendClientEvent({
+                        type: 'realtime_input',
+                        value: { text: triggerText }
+                    });
+                } else {
+                    console.error(`[Call ${callId}] sendClientEvent not found (reconnect=${isReconnect})`);
+                }
+            }, isReconnect ? 800 : 1200);
+
+            const sessionErrorPromise = new Promise<void>((resolve) => {
+                const onClose = (err?: any) => {
+                    if (err) console.error(`[Call ${callId}] Session error:`, err);
+                    else console.log(`[Call ${callId}] Session closed unexpectedly`);
+                    resolve();
+                };
+                (session as any).once?.('close', () => onClose());
+                (session as any).once?.('error', onClose);
+            });
+
+            await Promise.race([sessionErrorPromise, roomDonePromise]);
+            return roomClosed ? 'done' : 'reconnect';
+        };
+
+        // ── Main execution with reconnect loop ────────────────────────────
+        let result = await runSession(false);
+
+        for (let attempt = 0; result === 'reconnect' && attempt < RECONNECT_DELAYS_MS.length; attempt++) {
+            const delay = RECONNECT_DELAYS_MS[attempt];
+            console.log(`[Call ${callId}] Session dropped. Reconnecting in ${delay}ms (attempt ${attempt + 1}/${RECONNECT_DELAYS_MS.length})...`);
+
+            await Promise.race([
+                new Promise<void>(r => setTimeout(r, delay)),
+                roomDonePromise,
+            ]);
+
+            if (roomClosed) break;
+            result = await runSession(true);
+        }
+
+        if (result === 'reconnect' && !roomClosed) {
+            console.log(`[Call ${callId}] Max reconnect attempts exhausted. Disconnecting room.`);
+            clearTimers();
+            ctx.room.disconnect();
+        }
+
+        await roomDonePromise;
+        clearTimers();
+
         runPostCallAnalysis(callId, callStartTime);
 
         console.log(`[Call ${callId}] Agent exiting.`);

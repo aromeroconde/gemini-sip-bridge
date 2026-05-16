@@ -184,15 +184,6 @@ export default defineAgent({
 
         console.log(`[Call ${callId}] Agent started. Room: ${ctx.room.name}`);
 
-        // Extract caller phone number from SIP participant attributes
-        const sipParticipant = [...ctx.room.remoteParticipants.values()]
-            .find(p => p.attributes['sip.callFrom']);
-        const callerPhone = sipParticipant
-            ? extractCallerPhone(sipParticipant.attributes['sip.callFrom'])
-            : '';
-        (globalThis as any).__callerPhone = callerPhone;
-        console.log(`[Call ${callId}] Caller phone: ${callerPhone || '(not available)'}`);
-
         const voicePrompt = loadVoicePrompt();
 
         const model = new google.beta.realtime.RealtimeModel({
@@ -222,6 +213,19 @@ export default defineAgent({
         });
 
         await session.start({ agent, room: ctx.room });
+
+        // Extract caller phone AFTER session.start() so participants are loaded
+        const allParticipants = [...ctx.room.remoteParticipants.values()];
+        console.log(`[Call ${callId}] Participants in room: ${allParticipants.length}`);
+        allParticipants.forEach(p => {
+            console.log(`[Call ${callId}] Participant ${p.identity} attributes:`, JSON.stringify(p.attributes));
+        });
+        const sipParticipant = allParticipants.find(p => p.attributes['sip.callFrom']);
+        const callerPhone = sipParticipant
+            ? extractCallerPhone(sipParticipant.attributes['sip.callFrom'])
+            : '';
+        (globalThis as any).__callerPhone = callerPhone;
+        console.log(`[Call ${callId}] Caller phone: ${callerPhone || '(not available)'}`);
 
         console.log(`[Call ${callId}] Agent session started. Waiting for participant to trigger proactive greeting...`);
 

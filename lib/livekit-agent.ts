@@ -278,8 +278,10 @@ export default defineAgent({
             },
         });
 
-        // ── Room close signal (shared across reconnects) ──────────────────
+        // ── Room/caller close signals (shared across reconnects) ─────────
         let roomClosed = false;
+        let sipCallerHungUp = false;
+
         const roomDonePromise = new Promise<void>((resolve) => {
             ctx.room.once('disconnected', () => {
                 roomClosed = true;
@@ -287,6 +289,14 @@ export default defineAgent({
                 console.log(`[Call ${callId}] Room disconnected after ${duration}s`);
                 resolve();
             });
+        });
+
+        ctx.room.on('participantDisconnected', (participant) => {
+            if (participant.attributes?.['sip.phoneNumber']) {
+                sipCallerHungUp = true;
+                console.log(`[Call ${callId}] SIP caller hung up — closing call`);
+                clearTimers();
+            }
         });
 
         // ── Session runner ────────────────────────────────────────────────
@@ -347,7 +357,7 @@ export default defineAgent({
             });
 
             await Promise.race([sessionErrorPromise, roomDonePromise]);
-            return roomClosed ? 'done' : 'reconnect';
+            return (roomClosed || sipCallerHungUp) ? 'done' : 'reconnect';
         };
 
         // ── Main execution with reconnect loop ────────────────────────────
@@ -362,11 +372,11 @@ export default defineAgent({
                 roomDonePromise,
             ]);
 
-            if (roomClosed) break;
+            if (roomClosed || sipCallerHungUp) break;
             result = await runSession(true);
         }
 
-        if (result === 'reconnect' && !roomClosed) {
+        if (result === 'reconnect' && !roomClosed && !sipCallerHungUp) {
             console.log(`[Call ${callId}] Max reconnect attempts exhausted. Disconnecting room.`);
             clearTimers();
             ctx.room.disconnect();

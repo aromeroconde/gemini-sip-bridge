@@ -16,37 +16,104 @@ import * as google from '@livekit/agents-plugin-google';
 import * as silero from '@livekit/agents-plugin-silero';
 import { z } from 'zod';
 import crypto from 'crypto';
+import fs from 'fs';
+import path from 'path';
+
+function loadVoicePrompt(): string {
+    if (process.env.VOICE_PROMPT) return process.env.VOICE_PROMPT;
+    const file = path.join(__dirname, '../prompts/voice_prompt.txt');
+    return fs.readFileSync(file, 'utf-8').trim();
+}
+
+function extractCallerPhone(sipUri: string): string {
+    // Handles: "+573001234567" or "sip:+573001234567@domain.com"
+    const match = sipUri.match(/(?:sip:)?([+\d]+)(?:@.*)?/);
+    return match ? match[1] : sipUri;
+}
 
 // ─── Tool Definitions ────────────────────────────────────────────────────
 
-const scheduleAppointment = llm.tool({
-    description: 'Agenda una cita o reserva para el usuario. Usa esta herramienta cuando el usuario pida reservar, agendar, o programar algo.',
-    parameters: z.object({
-        client_name: z.string().describe('Nombre completo del cliente'),
-        date: z.string().describe('Fecha de la cita en formato YYYY-MM-DD'),
-        time: z.string().describe('Hora de la cita en formato HH:MM (24h)'),
-        service: z.string().optional().describe('Tipo de servicio o motivo de la cita'),
-        notes: z.string().optional().describe('Notas o comentarios adicionales'),
-    }),
-    execute: async ({ client_name, date, time, service, notes }) => {
+const datosCliente = llm.tool({
+    description: 'Obtiene los datos del cliente que está llamando: nombre, dirección, ciudad, departamento, tipo de pago, historial de compras y contexto. Llamar SIEMPRE al inicio de la llamada, antes del saludo.',
+    parameters: z.object({}),
+    execute: async () => {
         const callId = (globalThis as any).__currentCallId || 'unknown';
-        console.log(`[Call ${callId}] Tool: schedule_appointment`, { client_name, date, time });
-        const result = await executeWebhook('schedule_appointment', { client_name, date, time, service, notes }, callId);
-        return JSON.stringify(result);
+        console.log(`[Call ${callId}] Tool: datos_cliente`);
+        const url = process.env.DATOS_CLIENTE_WEBHOOK_URL;
+        if (!url) {
+            console.warn(`[Call ${callId}] DATOS_CLIENTE_WEBHOOK_URL no configurada`);
+            return JSON.stringify({});
+        }
+        const phone = (globalThis as any).__callerPhone || '';
+        try {
+            const resp = await fetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ phone_number: phone, call_id: callId }),
+                signal: AbortSignal.timeout(10000),
+            });
+            if (!resp.ok) {
+                console.error(`[Call ${callId}] datos_cliente error: ${resp.status}`);
+                return JSON.stringify({ tiene_datos: false });
+            }
+            const raw = await resp.json();
+            const vars = raw?.[0]?.call_inbound?.dynamic_variables ?? {};
+            const data = {
+                tiene_datos: vars.tiene_datos === 'true',
+                nombre_cliente: vars.nombre_cliente || '',
+                primer_nombre: vars.primer_nombre || '',
+                direccion: vars.direccion || '',
+                ciudad: vars.ciudad || '',
+                departamento: vars.departamento || '',
+                tipo_pago: vars.tipo_pago || '',
+                fecha_ultima_compra: vars.fecha_ultima_compra || '',
+                producto_ultima_compra: vars.producto_ultima_compra || '',
+            };
+            console.log(`[Call ${callId}] datos_cliente:`, data);
+            return JSON.stringify(data);
+        } catch (err) {
+            console.error(`[Call ${callId}] datos_cliente falló:`, err);
+            return JSON.stringify({ tiene_datos: false });
+        }
     },
 });
 
-const lookupInformation = llm.tool({
-    description: 'Busca información en la base de datos del negocio. Usa esta herramienta para consultar disponibilidad, precios, horarios u otra información del negocio.',
+const precio = llm.tool({
+    description: 'Devuelve la mejor promoción disponible para el producto que le interesa al cliente. Llamar cuando el cliente pregunte por el precio o quiera comprar. Siempre prioriza las promociones activas e indica si el envío es gratuito.',
     parameters: z.object({
-        query_type: z.enum(['availability', 'pricing', 'hours', 'services', 'general']).describe('Tipo de consulta'),
-        query: z.string().describe('La consulta o pregunta específica'),
+        producto: z.string().describe('Nombre del producto: Collagen Peptides, Fibra Gudd o Detox Gudd'),
     }),
-    execute: async ({ query_type, query }) => {
+    execute: async ({ producto }) => {
         const callId = (globalThis as any).__currentCallId || 'unknown';
-        console.log(`[Call ${callId}] Tool: lookup_information`, { query_type, query });
-        const result = await executeWebhook('lookup_information', { query_type, query }, callId);
-        return JSON.stringify(result);
+        console.log(`[Call ${callId}] Tool: precio`, { producto });
+        const url = process.env.PRECIO_WEBHOOK_URL;
+        if (!url) {
+            console.warn(`[Call ${callId}] PRECIO_WEBHOOK_URL no configurada`);
+            return JSON.stringify({ error: 'Precio no disponible en este momento' });
+        }
+        try {
+            const resp = await fetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ producto, call_id: callId }),
+                signal: AbortSignal.timeout(10000),
+            });
+            if (!resp.ok) {
+                console.error(`[Call ${callId}] precio error: ${resp.status}`);
+                return JSON.stringify({ error: `Error consultando precio: ${resp.status}` });
+            }
+            const raw = await resp.json();
+            const content = raw?.[0]?.message?.content;
+            if (!content) {
+                console.error(`[Call ${callId}] precio: respuesta inesperada`, raw);
+                return JSON.stringify({ error: 'No se pudo obtener el precio en este momento' });
+            }
+            console.log(`[Call ${callId}] precio:`, content);
+            return JSON.stringify({ promocion: content });
+        } catch (err) {
+            console.error(`[Call ${callId}] precio falló:`, err);
+            return JSON.stringify({ error: 'No se pudo consultar el precio en este momento' });
+        }
     },
 });
 
@@ -89,10 +156,6 @@ async function executeWebhook(toolName: string, args: Record<string, any>, callI
 
     // Mock responses
     switch (toolName) {
-        case 'schedule_appointment':
-            return { success: true, message: `Cita agendada para ${args.client_name} el ${args.date} a las ${args.time}.`, confirmation_code: 'MOCK-' + Math.random().toString(36).substring(2, 8).toUpperCase() };
-        case 'lookup_information':
-            return { success: true, data: `Resultado simulado para "${args.query_type}": ${args.query}` };
         case 'transfer_to_human':
             return { success: true, message: `Transferencia a ${args.department || 'general'}. Motivo: ${args.reason}` };
         default:
@@ -118,18 +181,29 @@ export default defineAgent({
 
         console.log(`[Call ${callId}] Agent started. Room: ${ctx.room.name}`);
 
+        // Extract caller phone number from SIP participant attributes
+        const sipParticipant = [...ctx.room.remoteParticipants.values()]
+            .find(p => p.attributes['sip.callFrom']);
+        const callerPhone = sipParticipant
+            ? extractCallerPhone(sipParticipant.attributes['sip.callFrom'])
+            : '';
+        (globalThis as any).__callerPhone = callerPhone;
+        console.log(`[Call ${callId}] Caller phone: ${callerPhone || '(not available)'}`);
+
+        const voicePrompt = loadVoicePrompt();
+
         const model = new google.beta.realtime.RealtimeModel({
             model: process.env.GEMINI_MODEL || 'gemini-3.1-flash-live-preview',
             voice: process.env.VOICE_NAME || 'Zephyr',
-            instructions: process.env.VOICE_PROMPT || 'Eres QuantumIA, el consultor de IA de élite. Responde de forma profesional, amable y concisa. Habla siempre en español de Colombia.',
+            instructions: voicePrompt,
             apiKey: process.env.GOOGLE_API_KEY,
         });
 
         const agent = new voice.Agent({
-            instructions: process.env.VOICE_PROMPT || 'Eres QuantumIA, el consultor de IA de élite. Responde de forma profesional, amable y concisa. Habla siempre en español de Colombia.',
+            instructions: voicePrompt,
             tools: {
-                schedule_appointment: scheduleAppointment,
-                lookup_information: lookupInformation,
+                datos_cliente: datosCliente,
+                precio: precio,
                 transfer_to_human: transferToHuman,
             },
         });
@@ -156,7 +230,7 @@ export default defineAgent({
                 (realtimeSession as any).sendClientEvent({
                     type: 'realtime_input',
                     value: {
-                        text: '¡HOLA! (Saluda ahora mismo como QuantumIA, de forma muy breve)'
+                        text: '[INICIO DE LLAMADA] Llama ahora a la función datos_cliente y luego saluda al cliente como Carolina de Advanced Health.'
                     }
                 });
             } else {

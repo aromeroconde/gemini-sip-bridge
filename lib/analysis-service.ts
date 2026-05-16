@@ -7,6 +7,8 @@
  */
 
 import { GoogleGenAI } from '@google/genai';
+import fs from 'fs';
+import path from 'path';
 
 export interface ConversationEntry {
     role: 'user' | 'model';
@@ -27,27 +29,10 @@ export interface CallAnalysis {
     transcript: string;
 }
 
-const ANALYSIS_PROMPT = `Eres un analista de calidad de llamadas telefónicas. Analiza la siguiente transcripción de una llamada entre un asistente de IA y un cliente.
-
-Responde EXCLUSIVAMENTE con un JSON válido (sin markdown, sin bloques de código) con esta estructura exacta:
-{
-  "summary": "Resumen breve de la conversación en 2-3 oraciones",
-  "sentiment": "positive | neutral | negative",
-  "key_topics": ["tema1", "tema2"],
-  "action_items": ["acción pendiente 1", "acción pendiente 2"],
-  "extracted_data": {
-    "nombre_cliente": "si se mencionó",
-    "telefono": "si se mencionó",
-    "email": "si se mencionó",
-    "empresa": "si se mencionó"
-  },
-  "resolution_status": "resolved | unresolved | transferred | unknown"
-}
-
-Si no hay datos para un campo, usa un array vacío [] o un objeto vacío {}.
-
-TRANSCRIPCIÓN:
-`;
+const ANALYSIS_PROMPT = fs.readFileSync(
+    path.join(__dirname, '../prompts/analysis_prompt.txt'),
+    'utf-8'
+);
 
 /**
  * Analyze a completed call's conversation log using Gemini Flash.

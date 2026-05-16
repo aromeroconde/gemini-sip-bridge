@@ -220,9 +220,9 @@ export default defineAgent({
         allParticipants.forEach(p => {
             console.log(`[Call ${callId}] Participant ${p.identity} attributes:`, JSON.stringify(p.attributes));
         });
-        const sipParticipant = allParticipants.find(p => p.attributes['sip.callFrom']);
+        const sipParticipant = allParticipants.find(p => p.attributes['sip.phoneNumber']);
         const callerPhone = sipParticipant
-            ? extractCallerPhone(sipParticipant.attributes['sip.callFrom'])
+            ? sipParticipant.attributes['sip.phoneNumber']
             : '';
         (globalThis as any).__callerPhone = callerPhone;
         console.log(`[Call ${callId}] Caller phone: ${callerPhone || '(not available)'}`);

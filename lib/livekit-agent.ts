@@ -105,13 +105,20 @@ const precio = llm.tool({
                 console.error(`[Call ${callId}] precio error: ${resp.status}`);
                 return JSON.stringify({ error: `Error consultando precio: ${resp.status}` });
             }
-            const raw = await resp.json();
-            const content = raw?.[0]?.message?.content;
+            const text = await resp.text();
+            let content: string;
+            try {
+                const raw = JSON.parse(text);
+                content = raw?.[0]?.message?.content ?? '';
+            } catch {
+                // Webhook devuelve texto plano directamente
+                content = text.trim();
+            }
             if (!content) {
-                console.error(`[Call ${callId}] precio: respuesta inesperada`, raw);
+                console.error(`[Call ${callId}] precio: respuesta vacía`);
                 return JSON.stringify({ error: 'No se pudo obtener el precio en este momento' });
             }
-            console.log(`[Call ${callId}] precio:`, content);
+            console.log(`[Call ${callId}] precio:`, content.substring(0, 100));
             return JSON.stringify({ promocion: content });
         } catch (err) {
             console.error(`[Call ${callId}] precio falló:`, err);

@@ -18,6 +18,9 @@ import { z } from 'zod';
 import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 function loadVoicePrompt(): string {
     if (process.env.VOICE_PROMPT) return process.env.VOICE_PROMPT;

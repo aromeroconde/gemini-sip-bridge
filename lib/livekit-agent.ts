@@ -14,6 +14,7 @@ import {
 } from '@livekit/agents';
 import * as google from '@livekit/agents-plugin-google';
 import * as silero from '@livekit/agents-plugin-silero';
+import { RoomServiceClient } from 'livekit-server-sdk';
 import { z } from 'zod';
 import crypto from 'crypto';
 import fs from 'fs';
@@ -406,8 +407,11 @@ export default defineAgent({
 
         clearTimers();
 
-        // Desconectar sala inmediatamente para cortar el audio
-        if (!roomClosed) ctx.room.disconnect();
+        // Dar 3s para que Carolina termine de hablar antes de colgar
+        await new Promise<void>(r => setTimeout(r, 3000));
+
+        // Eliminar el room via API — esto cuelga la llamada SIP y desconecta al agente
+        await deleteRoom(ctx.room.name ?? '');
 
         // Enviar webhook (awaited para que complete antes de que el proceso muera)
         await runPostCallAnalysis(callId, callStartTime, callerPhone, toolsUsed);
@@ -421,6 +425,26 @@ export default defineAgent({
         console.log(`[Call ${callId}] Agent exiting.`);
     },
 });
+
+// ─── Room Deletion (cuelga la llamada SIP) ───────────────────────────────
+
+async function deleteRoom(roomName: string): Promise<void> {
+    try {
+        const wsUrl = process.env.LIVEKIT_URL ?? '';
+        const httpUrl = wsUrl.replace(/^wss?:\/\//, 'https://');
+        const apiKey = process.env.LIVEKIT_API_KEY ?? '';
+        const apiSecret = process.env.LIVEKIT_API_SECRET ?? '';
+        if (!httpUrl || !apiKey || !apiSecret) {
+            console.error('[HangUp] Faltan credenciales LiveKit');
+            return;
+        }
+        const svc = new RoomServiceClient(httpUrl, apiKey, apiSecret);
+        await svc.deleteRoom(roomName);
+        console.log(`[HangUp] Room ${roomName} eliminado — llamada SIP colgada`);
+    } catch (err) {
+        console.error('[HangUp] Error eliminando room:', err);
+    }
+}
 
 // ─── Post-Call Analysis ──────────────────────────────────────────────────
 

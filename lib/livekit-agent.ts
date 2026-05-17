@@ -136,11 +136,11 @@ const endCall = llm.tool({
         const callId = (globalThis as any).__currentCallId || 'unknown';
         ((globalThis as any).__toolsCalledThisCall ??= []).push('end_call');
         console.log(`[Call ${callId}] Tool: end_call — colgando llamada`);
-        const disconnect = (globalThis as any).__disconnectRoom;
-        if (typeof disconnect === 'function') {
-            setTimeout(disconnect, 2000); // dar 2s para que Carolina termine de hablar
+        const trigger = (globalThis as any).__triggerEndCall;
+        if (typeof trigger === 'function') {
+            trigger();
         } else {
-            console.error(`[Call ${callId}] end_call: __disconnectRoom no disponible`);
+            console.error(`[Call ${callId}] end_call: __triggerEndCall no disponible`);
         }
         return JSON.stringify({ success: true });
     },
@@ -229,15 +229,37 @@ export default defineAgent({
         };
 
         (globalThis as any).__toolsCalledThisCall = [];
-        (globalThis as any).__disconnectRoom = () => {
-            console.log(`[Call ${callId}] end_call: desconectando sala`);
-            ctx.room.disconnect();
+
+        // ── Call-ending signal (resolved by end_call tool) ────────────────
+        let callEnding = false;
+        let callEndingResolve: () => void = () => {};
+        const callEndingPromise = new Promise<void>(r => { callEndingResolve = r; });
+
+        // ── Room done signal ──────────────────────────────────────────────
+        let roomClosed = false;
+        let roomDoneResolve: () => void = () => {};
+        const roomDonePromise = new Promise<void>(r => { roomDoneResolve = r; });
+
+        ctx.room.once('disconnected', () => {
+            roomClosed = true;
+            const duration = Math.round((Date.now() - callStartTime) / 1000);
+            console.log(`[Call ${callId}] Room disconnected after ${duration}s`);
+            roomDoneResolve();
+        });
+
+        (globalThis as any).__triggerEndCall = () => {
+            if (callEnding) return;
+            callEnding = true;
+            console.log(`[Call ${callId}] end_call: señal de fin recibida`);
+            callEndingResolve();
         };
 
         ctx.addShutdownCallback(async () => {
-            console.log(`[Call ${callId}] Shutdown callback: clearing timers`);
+            console.log(`[Call ${callId}] Shutdown callback`);
             clearTimers();
-            delete (globalThis as any).__disconnectRoom;
+            callEnding = true; callEndingResolve();
+            roomClosed = true; roomDoneResolve();
+            delete (globalThis as any).__triggerEndCall;
             delete (globalThis as any).__toolsCalledThisCall;
         });
 
@@ -284,24 +306,15 @@ export default defineAgent({
             },
         });
 
-        // ── Room/caller close signals (shared across reconnects) ─────────
-        let roomClosed = false;
+        // ── SIP caller hangup ────────────────────────────────────────────
         let sipCallerHungUp = false;
-
-        const roomDonePromise = new Promise<void>((resolve) => {
-            ctx.room.once('disconnected', () => {
-                roomClosed = true;
-                const duration = Math.round((Date.now() - callStartTime) / 1000);
-                console.log(`[Call ${callId}] Room disconnected after ${duration}s`);
-                resolve();
-            });
-        });
 
         ctx.room.on('participantDisconnected', (participant) => {
             if (participant.attributes?.['sip.phoneNumber']) {
                 sipCallerHungUp = true;
                 console.log(`[Call ${callId}] SIP caller hung up — closing call`);
                 clearTimers();
+                callEndingResolve();
             }
         });
 
@@ -362,8 +375,8 @@ export default defineAgent({
                 (session as any).once?.('error', onClose);
             });
 
-            await Promise.race([sessionErrorPromise, roomDonePromise]);
-            return (roomClosed || sipCallerHungUp) ? 'done' : 'reconnect';
+            await Promise.race([sessionErrorPromise, roomDonePromise, callEndingPromise]);
+            return (roomClosed || sipCallerHungUp || callEnding) ? 'done' : 'reconnect';
         };
 
         // ── Main execution with reconnect loop ────────────────────────────
@@ -376,27 +389,34 @@ export default defineAgent({
             await Promise.race([
                 new Promise<void>(r => setTimeout(r, delay)),
                 roomDonePromise,
+                callEndingPromise,
             ]);
 
-            if (roomClosed || sipCallerHungUp) break;
+            if (roomClosed || sipCallerHungUp || callEnding) break;
             result = await runSession(true);
         }
 
-        if (result === 'reconnect' && !roomClosed && !sipCallerHungUp) {
+        if (result === 'reconnect' && !roomClosed && !sipCallerHungUp && !callEnding) {
             console.log(`[Call ${callId}] Max reconnect attempts exhausted. Disconnecting room.`);
-            clearTimers();
-            ctx.room.disconnect();
         }
 
-        await roomDonePromise;
+        // Capturar datos antes de cualquier limpieza
+        const callerPhone = (globalThis as any).__callerPhone || '';
+        const toolsUsed = [...((globalThis as any).__toolsCalledThisCall || [])];
+
         clearTimers();
 
-        runPostCallAnalysis(
-            callId,
-            callStartTime,
-            (globalThis as any).__callerPhone || '',
-            [...((globalThis as any).__toolsCalledThisCall || [])],
-        );
+        // Desconectar sala inmediatamente para cortar el audio
+        if (!roomClosed) ctx.room.disconnect();
+
+        // Enviar webhook (awaited para que complete antes de que el proceso muera)
+        await runPostCallAnalysis(callId, callStartTime, callerPhone, toolsUsed);
+
+        // Esperar cierre del room con fallback de 5s
+        await Promise.race([
+            roomDonePromise,
+            new Promise<void>(r => setTimeout(r, 5000)),
+        ]);
 
         console.log(`[Call ${callId}] Agent exiting.`);
     },

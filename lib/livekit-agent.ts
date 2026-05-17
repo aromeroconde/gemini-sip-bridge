@@ -41,6 +41,7 @@ const datosCliente = llm.tool({
     parameters: z.object({}),
     execute: async () => {
         const callId = (globalThis as any).__currentCallId || 'unknown';
+        ((globalThis as any).__toolsCalledThisCall ??= []).push('datos_cliente');
         console.log(`[Call ${callId}] Tool: datos_cliente`);
         const url = process.env.DATOS_CLIENTE_WEBHOOK_URL;
         if (!url) {
@@ -88,6 +89,7 @@ const precio = llm.tool({
     }),
     execute: async ({ producto }) => {
         const callId = (globalThis as any).__currentCallId || 'unknown';
+        ((globalThis as any).__toolsCalledThisCall ??= []).push('precio');
         console.log(`[Call ${callId}] Tool: precio`, { producto });
         const url = process.env.PRECIO_WEBHOOK_URL;
         if (!url) {
@@ -132,6 +134,7 @@ const endCall = llm.tool({
     parameters: z.object({}),
     execute: async () => {
         const callId = (globalThis as any).__currentCallId || 'unknown';
+        ((globalThis as any).__toolsCalledThisCall ??= []).push('end_call');
         console.log(`[Call ${callId}] Tool: end_call — colgando llamada`);
         const disconnect = (globalThis as any).__disconnectRoom;
         if (typeof disconnect === 'function') {
@@ -151,6 +154,7 @@ const transferToHuman = llm.tool({
     }),
     execute: async ({ reason, department }) => {
         const callId = (globalThis as any).__currentCallId || 'unknown';
+        ((globalThis as any).__toolsCalledThisCall ??= []).push('transfer_to_human');
         console.log(`[Call ${callId}] Tool: transfer_to_human`, { reason, department });
         const result = await executeWebhook('transfer_to_human', { reason, department }, callId);
         return JSON.stringify(result);
@@ -224,6 +228,7 @@ export default defineAgent({
             if (silenceTimeout) { clearTimeout(silenceTimeout); silenceTimeout = null; }
         };
 
+        (globalThis as any).__toolsCalledThisCall = [];
         (globalThis as any).__disconnectRoom = () => {
             console.log(`[Call ${callId}] end_call: desconectando sala`);
             ctx.room.disconnect();
@@ -233,6 +238,7 @@ export default defineAgent({
             console.log(`[Call ${callId}] Shutdown callback: clearing timers`);
             clearTimers();
             delete (globalThis as any).__disconnectRoom;
+            delete (globalThis as any).__toolsCalledThisCall;
         });
 
         hardTimeout = setTimeout(() => {
@@ -385,7 +391,12 @@ export default defineAgent({
         await roomDonePromise;
         clearTimers();
 
-        runPostCallAnalysis(callId, callStartTime);
+        runPostCallAnalysis(
+            callId,
+            callStartTime,
+            (globalThis as any).__callerPhone || '',
+            [...((globalThis as any).__toolsCalledThisCall || [])],
+        );
 
         console.log(`[Call ${callId}] Agent exiting.`);
     },
@@ -393,14 +404,17 @@ export default defineAgent({
 
 // ─── Post-Call Analysis ──────────────────────────────────────────────────
 
-async function runPostCallAnalysis(callId: string, callStartTime: number) {
+async function runPostCallAnalysis(
+    callId: string,
+    callStartTime: number,
+    callerPhone: string,
+    toolsUsed: string[],
+) {
     try {
-        const { analyzeCall } = await import('./analysis-service.js');
+        const { sendCallSummary } = await import('./analysis-service.js');
         const durationSeconds = Math.round((Date.now() - callStartTime) / 1000);
-        // Note: conversation log tracking would require hooking into session events
-        // For now, analysis is based on available data
-        await analyzeCall(callId, [], [], durationSeconds);
+        await sendCallSummary(callId, durationSeconds, callerPhone, toolsUsed);
     } catch (err) {
-        console.error(`[Call ${callId}] Post-call analysis failed:`, err);
+        console.error(`[Call ${callId}] Post-call summary failed:`, err);
     }
 }

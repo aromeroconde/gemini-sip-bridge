@@ -131,3 +131,53 @@ async function sendReport(analysis: CallAnalysis): Promise<void> {
         console.error('[Analysis] Failed to send report:', err);
     }
 }
+
+/**
+ * Send a basic call summary after every call — no conversation data required.
+ * Configure GEMINI_LIVE_COST_PER_MINUTE to get cost estimates.
+ */
+export async function sendCallSummary(
+    callId: string,
+    durationSeconds: number,
+    callerPhone: string,
+    toolsUsed: string[]
+): Promise<void> {
+    const costPerMinute = parseFloat(process.env.GEMINI_LIVE_COST_PER_MINUTE || '0');
+    const durationMinutes = durationSeconds / 60;
+    const costEstimate = costPerMinute > 0
+        ? Math.round(durationMinutes * costPerMinute * 10000) / 10000
+        : null;
+
+    const summary = {
+        event: 'call_ended',
+        call_id: callId,
+        timestamp: new Date().toISOString(),
+        caller_phone: callerPhone,
+        duration_seconds: durationSeconds,
+        duration_minutes: Math.round(durationMinutes * 100) / 100,
+        tools_used: toolsUsed,
+        model: process.env.GEMINI_MODEL || 'gemini-3.1-flash-live-preview',
+        ...(costEstimate !== null && { cost_estimate_usd: costEstimate }),
+    };
+
+    console.log(`[Analysis] Call summary — duration: ${durationSeconds}s, phone: ${callerPhone || 'unknown'}, tools: [${toolsUsed.join(', ')}]${costEstimate !== null ? `, cost: $${costEstimate}` : ''}`);
+
+    const reportUrl = process.env.REPORT_WEBHOOK_URL;
+    if (!reportUrl) return;
+
+    try {
+        const response = await fetch(reportUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(summary),
+            signal: AbortSignal.timeout(15000),
+        });
+        if (response.ok) {
+            console.log(`[Analysis] Call summary sent for call ${callId}`);
+        } else {
+            console.error(`[Analysis] Summary webhook returned ${response.status}`);
+        }
+    } catch (err) {
+        console.error('[Analysis] Failed to send call summary:', err);
+    }
+}

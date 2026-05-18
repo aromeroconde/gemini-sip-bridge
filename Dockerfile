@@ -24,5 +24,6 @@ RUN npm ci --omit=dev
 
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/prompts ./prompts
+COPY --from=builder /app/data ./data
 
 CMD ["node", "dist/agent.js", "dev"]

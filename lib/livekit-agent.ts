@@ -19,6 +19,7 @@ import { z } from 'zod';
 import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
+import { getCatalog } from './catalog.js';
 import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -75,9 +76,6 @@ const datosCliente = llm.tool({
                 producto_ultima_compra: vars.producto_ultima_compra || '',
             };
             console.log(`[Call ${callId}] datos_cliente:`, data);
-            // Pre-cargar el catálogo completo de precios en background
-            // (una sola request — el webhook devuelve todos los productos)
-            prefetchPrecio(callId);
             return JSON.stringify(data);
         } catch (err) {
             console.error(`[Call ${callId}] datos_cliente falló:`, err);
@@ -87,58 +85,20 @@ const datosCliente = llm.tool({
 });
 
 const precio = llm.tool({
-    description: 'Devuelve el catálogo completo de precios y promociones vigentes. Tú escoges el producto adecuado e improvisas la respuesta de forma cálida y natural. OBLIGATORIO: ANTES de llamar esta herramienta, di en voz alta "Deme un segundito que le busco el mejor precio..." para no dejar silencio. Siempre menciona el envío gratis si la compra supera $100.000.',
+    description: 'Devuelve el catálogo de precios y promociones vigentes. Escoge el producto que el cliente pregunta y arma la respuesta de forma cálida y natural. Siempre menciona el envío gratis si la compra supera $100.000.',
     parameters: z.object({
-        producto: z.string().describe('Nombre del producto que pregunta el cliente: Collagen Peptides, Fibra Gudd o Detox Gudd'),
+        producto: z.string().describe('Nombre del producto que pregunta el cliente'),
     }),
     execute: async ({ producto }) => {
         const callId = (globalThis as any).__currentCallId || 'unknown';
         ((globalThis as any).__toolsCalledThisCall ??= []).push('precio');
-        console.log(`[Call ${callId}] Tool: precio`, { producto });
-        const url = process.env.PRECIO_WEBHOOK_URL;
-        if (!url) {
-            console.warn(`[Call ${callId}] PRECIO_WEBHOOK_URL no configurada`);
-            return JSON.stringify({ error: 'Precio no disponible en este momento' });
+        const catalogo = getCatalog();
+        if (!catalogo) {
+            console.warn(`[Call ${callId}] precio: catálogo vacío`);
+            return JSON.stringify({ error: 'Catálogo no disponible en este momento' });
         }
-        try {
-            // Esperar a que el audio de "deme un segundito" termine.
-            await new Promise(r => setTimeout(r, 3000));
-            // Caché global (no por producto: el webhook devuelve el catálogo completo)
-            const cached = (globalThis as any).__precioCache;
-            if (cached) {
-                console.log(`[Call ${callId}] precio desde caché`);
-                return JSON.stringify({ catalogo: cached, producto_consultado: producto });
-            }
-            const resp = await fetch(url, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ producto, call_id: callId }),
-                signal: AbortSignal.timeout(10000),
-            });
-            if (!resp.ok) {
-                console.error(`[Call ${callId}] precio error: ${resp.status}`);
-                return JSON.stringify({ error: `Error consultando precio: ${resp.status}` });
-            }
-            const text = await resp.text();
-            let data: any;
-            try {
-                data = JSON.parse(text);
-            } catch {
-                // Compatibilidad: respuesta texto plano
-                return JSON.stringify({ catalogo: text.trim(), producto_consultado: producto });
-            }
-            // Extraer el bloque de precios del JSON. La hoja tiene una columna
-            // llamada "Precios y Promociones" con todo el catálogo como texto.
-            const catalogo = Array.isArray(data) && data[0]?.['Precios y Promociones']
-                ? data[0]['Precios y Promociones']
-                : data;
-            (globalThis as any).__precioCache = catalogo;
-            console.log(`[Call ${callId}] precio cargado:`, typeof catalogo === 'string' ? catalogo.substring(0, 200) : JSON.stringify(catalogo).substring(0, 200));
-            return JSON.stringify({ catalogo, producto_consultado: producto });
-        } catch (err) {
-            console.error(`[Call ${callId}] precio falló:`, err);
-            return JSON.stringify({ error: 'No se pudo consultar el precio en este momento' });
-        }
+        console.log(`[Call ${callId}] Tool: precio (${producto}) → catálogo local`);
+        return JSON.stringify({ catalogo, producto_consultado: producto });
     },
 });
 
@@ -278,7 +238,6 @@ export default defineAgent({
             roomClosed = true; roomDoneResolve();
             delete (globalThis as any).__triggerEndCall;
             delete (globalThis as any).__toolsCalledThisCall;
-            delete (globalThis as any).__precioCache;
         });
 
         hardTimeout = setTimeout(() => {
@@ -439,33 +398,6 @@ export default defineAgent({
         console.log(`[Call ${callId}] Agent exiting.`);
     },
 });
-
-// ─── Price Pre-fetch ─────────────────────────────────────────────────────
-
-function prefetchPrecio(callId: string): void {
-    const url = process.env.PRECIO_WEBHOOK_URL;
-    if (!url) return;
-    (async () => {
-        try {
-            const resp = await fetch(url, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ call_id: callId }),
-                signal: AbortSignal.timeout(20000),
-            });
-            const text = await resp.text();
-            let data: any;
-            try { data = JSON.parse(text); } catch { data = text.trim(); }
-            const catalogo = Array.isArray(data) && data[0]?.['Precios y Promociones']
-                ? data[0]['Precios y Promociones']
-                : data;
-            if (catalogo) {
-                (globalThis as any).__precioCache = catalogo;
-                console.log(`[Call ${callId}] Catálogo pre-cargado`);
-            }
-        } catch { /* ignorar errores de pre-carga */ }
-    })();
-}
 
 // ─── Room Deletion (cuelga la llamada SIP) ───────────────────────────────
 

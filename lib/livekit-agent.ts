@@ -75,12 +75,14 @@ const datosCliente = llm.tool({
                 producto_ultima_compra: vars.producto_ultima_compra || '',
             };
             console.log(`[Call ${callId}] datos_cliente:`, data);
-            // Pre-cargar precios en background para eliminar latencia cuando el cliente los pida
-            prefetchPrecios(callId);
+            // Pre-cargar SOLO el producto que el cliente compró anteriormente
+            // (el más probable a preguntar). No escala mal con muchos SKUs.
+            if (data.producto_ultima_compra) {
+                prefetchPrecio(callId, data.producto_ultima_compra);
+            }
             return JSON.stringify(data);
         } catch (err) {
             console.error(`[Call ${callId}] datos_cliente falló:`, err);
-            prefetchPrecios(callId);
             return JSON.stringify({ tiene_datos: false });
         }
     },
@@ -441,11 +443,10 @@ export default defineAgent({
 
 // ─── Price Pre-fetch ─────────────────────────────────────────────────────
 
-function prefetchPrecios(callId: string): void {
+function prefetchPrecio(callId: string, producto: string): void {
     const url = process.env.PRECIO_WEBHOOK_URL;
     if (!url) return;
-    const productos = ['Collagen Peptides', 'Fibra Gudd', 'Detox Gudd'];
-    Promise.all(productos.map(async (producto) => {
+    (async () => {
         try {
             const resp = await fetch(url, {
                 method: 'POST',
@@ -459,11 +460,10 @@ function prefetchPrecios(callId: string): void {
             catch { content = text.trim(); }
             if (content) {
                 ((globalThis as any).__precioCache ??= {})[producto] = content;
+                console.log(`[Call ${callId}] Precio pre-cargado: ${producto}`);
             }
         } catch { /* ignorar errores de pre-carga */ }
-    })).then(() => {
-        console.log(`[Call ${callId}] Precios pre-cargados: ${Object.keys((globalThis as any).__precioCache ?? {}).join(', ')}`);
-    }).catch(() => {});
+    })();
 }
 
 // ─── Room Deletion (cuelga la llamada SIP) ───────────────────────────────

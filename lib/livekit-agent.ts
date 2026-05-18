@@ -84,7 +84,7 @@ const datosCliente = llm.tool({
 });
 
 const precio = llm.tool({
-    description: 'Devuelve la mejor promoción disponible para el producto que le interesa al cliente. Llamar cuando el cliente pregunte por el precio o quiera comprar. Siempre prioriza las promociones activas e indica si el envío es gratuito.',
+    description: 'Devuelve la mejor promoción disponible para el producto. OBLIGATORIO: ANTES de llamar esta herramienta, di en voz alta "Deme un segundito que le busco el mejor precio..." para no dejar silencio. Luego llama la herramienta. Siempre indica si el envío es gratuito.',
     parameters: z.object({
         producto: z.string().describe('Nombre del producto: Collagen Peptides, Fibra Gudd o Detox Gudd'),
     }),
@@ -136,7 +136,11 @@ const endCall = llm.tool({
     execute: async () => {
         const callId = (globalThis as any).__currentCallId || 'unknown';
         ((globalThis as any).__toolsCalledThisCall ??= []).push('end_call');
-        console.log(`[Call ${callId}] Tool: end_call — colgando llamada`);
+        console.log(`[Call ${callId}] Tool: end_call — esperando fin de despedida`);
+        // Esperar a que el audio de despedida termine antes de disparar el cierre.
+        // Mientras el tool está "ejecutando", Gemini no genera nueva respuesta
+        // ni interrumpe el audio actual.
+        await new Promise(r => setTimeout(r, 5000));
         const trigger = (globalThis as any).__triggerEndCall;
         if (typeof trigger === 'function') {
             trigger();
@@ -406,9 +410,6 @@ export default defineAgent({
         const toolsUsed = [...((globalThis as any).__toolsCalledThisCall || [])];
 
         clearTimers();
-
-        // Dar 3s para que Carolina termine de hablar antes de colgar
-        await new Promise<void>(r => setTimeout(r, 3000));
 
         // Eliminar el room via API — esto cuelga la llamada SIP y desconecta al agente
         await deleteRoom(ctx.room.name ?? '');

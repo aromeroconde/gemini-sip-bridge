@@ -125,9 +125,9 @@ const endCall = llm.tool({
 });
 
 const transferToHuman = llm.tool({
-    description: 'Transfiere la llamada a un agente humano. Usa esta herramienta cuando el usuario insista en hablar con una persona real o cuando no puedas resolver su problema.',
+    description: 'Registra una solicitud de contacto humano. NO transfiere la llamada en vivo — solo registra la intención para que el equipo contacte al cliente después. Usar cuando el cliente pida hablar con alguien, cuando no puedas resolver su problema, o cuando esté muy molesto.',
     parameters: z.object({
-        reason: z.string().describe('Motivo de la transferencia'),
+        reason: z.string().describe('Motivo por el que el cliente necesita contacto humano'),
         department: z.enum(['sales', 'support', 'billing', 'management']).optional().describe('Departamento sugerido'),
     }),
     execute: async ({ reason, department }) => {
@@ -165,7 +165,7 @@ async function executeWebhook(toolName: string, args: Record<string, any>, callI
     // Mock responses
     switch (toolName) {
         case 'transfer_to_human':
-            return { success: true, message: `Transferencia a ${args.department || 'general'}. Motivo: ${args.reason}` };
+            return { success: true, message: `Solicitud registrada. Un asesor del equipo de ${args.department || 'atención general'} contactará al cliente. Motivo: ${args.reason}` };
         default:
             return { success: false, error: `Tool desconocida: ${toolName}` };
     }

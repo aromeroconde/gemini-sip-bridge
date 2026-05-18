@@ -75,9 +75,12 @@ const datosCliente = llm.tool({
                 producto_ultima_compra: vars.producto_ultima_compra || '',
             };
             console.log(`[Call ${callId}] datos_cliente:`, data);
+            // Pre-cargar precios en background para eliminar latencia cuando el cliente los pida
+            prefetchPrecios(callId);
             return JSON.stringify(data);
         } catch (err) {
             console.error(`[Call ${callId}] datos_cliente falló:`, err);
+            prefetchPrecios(callId);
             return JSON.stringify({ tiene_datos: false });
         }
     },
@@ -98,9 +101,14 @@ const precio = llm.tool({
             return JSON.stringify({ error: 'Precio no disponible en este momento' });
         }
         try {
-            // Esperar a que el audio de "deme un segundito" termine antes
-            // de devolver la respuesta — mismo patrón que end_call
+            // Esperar a que el audio de "deme un segundito" termine.
+            // En paralelo, verificar si el precio ya está en caché (pre-cargado).
             await new Promise(r => setTimeout(r, 3000));
+            const cached = ((globalThis as any).__precioCache as Record<string, string> | undefined)?.[producto];
+            if (cached) {
+                console.log(`[Call ${callId}] precio desde caché: ${producto}`, cached.substring(0, 100));
+                return JSON.stringify({ promocion: cached });
+            }
             const resp = await fetch(url, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -269,6 +277,7 @@ export default defineAgent({
             roomClosed = true; roomDoneResolve();
             delete (globalThis as any).__triggerEndCall;
             delete (globalThis as any).__toolsCalledThisCall;
+            delete (globalThis as any).__precioCache;
         });
 
         hardTimeout = setTimeout(() => {
@@ -429,6 +438,33 @@ export default defineAgent({
         console.log(`[Call ${callId}] Agent exiting.`);
     },
 });
+
+// ─── Price Pre-fetch ─────────────────────────────────────────────────────
+
+function prefetchPrecios(callId: string): void {
+    const url = process.env.PRECIO_WEBHOOK_URL;
+    if (!url) return;
+    const productos = ['Collagen Peptides', 'Fibra Gudd', 'Detox Gudd'];
+    Promise.all(productos.map(async (producto) => {
+        try {
+            const resp = await fetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ producto, call_id: callId }),
+                signal: AbortSignal.timeout(20000),
+            });
+            const text = await resp.text();
+            let content: string;
+            try { content = JSON.parse(text)?.[0]?.message?.content ?? ''; }
+            catch { content = text.trim(); }
+            if (content) {
+                ((globalThis as any).__precioCache ??= {})[producto] = content;
+            }
+        } catch { /* ignorar errores de pre-carga */ }
+    })).then(() => {
+        console.log(`[Call ${callId}] Precios pre-cargados: ${Object.keys((globalThis as any).__precioCache ?? {}).join(', ')}`);
+    }).catch(() => {});
+}
 
 // ─── Room Deletion (cuelga la llamada SIP) ───────────────────────────────
 

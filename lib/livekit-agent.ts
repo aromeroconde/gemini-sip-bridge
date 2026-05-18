@@ -182,8 +182,11 @@ const RECONNECT_DELAYS_MS = [1000, 2000, 4000]; // backoff: 1s → 2s → 4s
 export default defineAgent({
     prewarm: async (proc: JobProcess) => {
         (proc.userData as any).vad = await silero.VAD.load({
-            minSpeechDuration: 0.1,
-            minSilenceDuration: 0.2,
+            // 400ms de sonido continuo para considerarlo habla. Filtra
+            // respiraciones, clicks y ruidos breves que antes interrumpían
+            // a Carolina (especialmente durante la despedida).
+            minSpeechDuration: 0.4,
+            minSilenceDuration: 0.3,
             prefixPaddingDuration: 0.1,
         });
     },

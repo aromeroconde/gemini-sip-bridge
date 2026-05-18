@@ -20,6 +20,7 @@ import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
 import { getCatalog } from './catalog.js';
+import type { ConversationEntry } from './analysis-service.js';
 import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -207,6 +208,9 @@ export default defineAgent({
 
         (globalThis as any).__toolsCalledThisCall = [];
 
+        // Captura de transcripción para análisis post-llamada
+        const conversation: ConversationEntry[] = [];
+
         // ── Call-ending signal (resolved by end_call tool) ────────────────
         let callEnding = false;
         let callEndingResolve: () => void = () => {};
@@ -304,6 +308,19 @@ export default defineAgent({
                 turnHandling: { endpointing: { minDelay: 300 } }
             });
 
+            // Capturar turnos finalizados (usuario y modelo) en el transcript
+            (session as any).on('conversation_item_added', (ev: any) => {
+                const role = ev?.item?.role === 'assistant' ? 'model' : 'user';
+                const text = (ev?.item?.textContent || '').trim();
+                if (text) {
+                    conversation.push({
+                        role,
+                        text,
+                        timestamp: ev?.createdAt ?? Date.now(),
+                    });
+                }
+            });
+
             try {
                 await session.start({ agent, room: ctx.room });
             } catch (err) {
@@ -387,7 +404,7 @@ export default defineAgent({
         await deleteRoom(ctx.room.name ?? '');
 
         // Enviar webhook (awaited para que complete antes de que el proceso muera)
-        await runPostCallAnalysis(callId, callStartTime, callerPhone, toolsUsed);
+        await runPostCallAnalysis(callId, callStartTime, callerPhone, toolsUsed, conversation);
 
         // Esperar cierre del room con fallback de 5s
         await Promise.race([
@@ -426,11 +443,12 @@ async function runPostCallAnalysis(
     callStartTime: number,
     callerPhone: string,
     toolsUsed: string[],
+    conversation: ConversationEntry[],
 ) {
     try {
         const { sendCallSummary } = await import('./analysis-service.js');
         const durationSeconds = Math.round((Date.now() - callStartTime) / 1000);
-        await sendCallSummary(callId, durationSeconds, callerPhone, toolsUsed);
+        await sendCallSummary(callId, durationSeconds, callerPhone, toolsUsed, conversation);
     } catch (err) {
         console.error(`[Call ${callId}] Post-call summary failed:`, err);
     }

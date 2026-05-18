@@ -133,20 +133,26 @@ async function sendReport(analysis: CallAnalysis): Promise<void> {
 }
 
 /**
- * Send a basic call summary after every call — no conversation data required.
+ * Send a basic call summary after every call.
+ * Includes the full transcript so the receiving workflow can run its own analysis.
  * Configure GEMINI_LIVE_COST_PER_MINUTE to get cost estimates.
  */
 export async function sendCallSummary(
     callId: string,
     durationSeconds: number,
     callerPhone: string,
-    toolsUsed: string[]
+    toolsUsed: string[],
+    conversation: ConversationEntry[] = []
 ): Promise<void> {
     const costPerMinute = parseFloat(process.env.GEMINI_LIVE_COST_PER_MINUTE || '0');
     const durationMinutes = durationSeconds / 60;
     const costEstimate = costPerMinute > 0
         ? Math.round(durationMinutes * costPerMinute * 10000) / 10000
         : null;
+
+    const transcriptText = conversation
+        .map(e => `[${e.role === 'user' ? 'CLIENTE' : 'CAROLINA'}]: ${e.text}`)
+        .join('\n');
 
     const summary = {
         event: 'call_ended',
@@ -158,9 +164,11 @@ export async function sendCallSummary(
         tools_used: toolsUsed,
         model: process.env.GEMINI_MODEL || 'gemini-3.1-flash-live-preview',
         ...(costEstimate !== null && { cost_estimate_usd: costEstimate }),
+        transcript: conversation,
+        transcript_text: transcriptText,
     };
 
-    console.log(`[Analysis] Call summary — duration: ${durationSeconds}s, phone: ${callerPhone || 'unknown'}, tools: [${toolsUsed.join(', ')}]${costEstimate !== null ? `, cost: $${costEstimate}` : ''}`);
+    console.log(`[Analysis] Call summary — duration: ${durationSeconds}s, phone: ${callerPhone || 'unknown'}, tools: [${toolsUsed.join(', ')}], turns: ${conversation.length}${costEstimate !== null ? `, cost: $${costEstimate}` : ''}`);
 
     const reportUrl = process.env.REPORT_WEBHOOK_URL;
     if (!reportUrl) return;

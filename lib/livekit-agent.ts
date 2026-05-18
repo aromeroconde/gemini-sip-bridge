@@ -98,6 +98,9 @@ const precio = llm.tool({
             return JSON.stringify({ error: 'Precio no disponible en este momento' });
         }
         try {
+            // Esperar a que el audio de "deme un segundito" termine antes
+            // de devolver la respuesta — mismo patrón que end_call
+            await new Promise(r => setTimeout(r, 3000));
             const resp = await fetch(url, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },

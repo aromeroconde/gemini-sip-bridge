@@ -114,11 +114,12 @@ const endCall = llm.tool({
         // Mientras el tool está "ejecutando", Gemini no genera nueva respuesta
         // ni interrumpe el audio actual.
         await new Promise(r => setTimeout(r, 5000));
-        const trigger = (globalThis as any).__triggerEndCall;
+        const key = `__triggerEndCall_${callId}`;
+        const trigger = (globalThis as any)[key];
         if (typeof trigger === 'function') {
             trigger();
         } else {
-            console.error(`[Call ${callId}] end_call: __triggerEndCall no disponible`);
+            console.error(`[Call ${callId}] end_call: trigger ${key} no disponible`);
         }
         return JSON.stringify({ success: true });
     },
@@ -231,7 +232,8 @@ export default defineAgent({
             roomDoneResolve();
         });
 
-        (globalThis as any).__triggerEndCall = () => {
+        const triggerKey = `__triggerEndCall_${callId}`;
+        (globalThis as any)[triggerKey] = () => {
             if (callEnding) return;
             callEnding = true;
             console.log(`[Call ${callId}] end_call: señal de fin recibida`);
@@ -243,7 +245,7 @@ export default defineAgent({
             clearTimers();
             callEnding = true; callEndingResolve();
             roomClosed = true; roomDoneResolve();
-            delete (globalThis as any).__triggerEndCall;
+            delete (globalThis as any)[triggerKey];
             delete (globalThis as any).__toolsCalledThisCall;
         });
 
@@ -373,7 +375,17 @@ export default defineAgent({
             });
 
             await Promise.race([sessionErrorPromise, roomDonePromise, callEndingPromise]);
-            return (roomClosed || sipCallerHungUp || callEnding) ? 'done' : 'reconnect';
+
+            const done = roomClosed || sipCallerHungUp || callEnding;
+            if (done) {
+                try {
+                    await session.close();
+                    console.log(`[Call ${callId}] Session closed successfully`);
+                } catch (err) {
+                    console.error(`[Call ${callId}] Error closing session:`, err);
+                }
+            }
+            return done ? 'done' : 'reconnect';
         };
 
         // ── Main execution with reconnect loop ────────────────────────────
@@ -406,6 +418,18 @@ export default defineAgent({
         // Eliminar el room via API — esto cuelga la llamada SIP y desconecta al agente
         await deleteRoom(ctx.room.name ?? '');
 
+        // Fallback: si deleteRoom no cerró el room, forzar desconexión
+        if (!roomClosed) {
+            await Promise.race([
+                roomDonePromise,
+                new Promise<void>(r => setTimeout(r, 2000)),
+            ]);
+            if (!roomClosed) {
+                console.log(`[Call ${callId}] Room aún abierto — forzando ctx.room.disconnect()`);
+                ctx.room.disconnect();
+            }
+        }
+
         // Enviar webhook (awaited para que complete antes de que el proceso muera)
         await runPostCallAnalysis(callId, callStartTime, callerPhone, toolsUsed, conversation);
 
@@ -422,6 +446,12 @@ export default defineAgent({
 // ─── Room Deletion (cuelga la llamada SIP) ───────────────────────────────
 
 async function deleteRoom(roomName: string): Promise<void> {
+let attempts = 0;
+const maxAttempts = 2;
+let deleted = false;
+
+while (!deleted && attempts < maxAttempts) {
+    attempts++;
     try {
         const wsUrl = process.env.LIVEKIT_URL ?? '';
         const httpUrl = wsUrl.replace(/^wss?:\/\//, 'https://');
@@ -433,10 +463,15 @@ async function deleteRoom(roomName: string): Promise<void> {
         }
         const svc = new RoomServiceClient(httpUrl, apiKey, apiSecret);
         await svc.deleteRoom(roomName);
-        console.log(`[HangUp] Room ${roomName} eliminado — llamada SIP colgada`);
+        deleted = true;
+        console.log(`[HangUp] Room ${roomName} eliminado — llamada SIP colgada (intento ${attempts})`);
     } catch (err) {
-        console.error('[HangUp] Error eliminando room:', err);
+        console.error(`[HangUp] Error eliminando room (intento ${attempts}/${maxAttempts}):`, err);
+        if (attempts < maxAttempts) {
+            await new Promise(r => setTimeout(r, 1000));
+        }
     }
+}
 }
 
 // ─── Post-Call Analysis ──────────────────────────────────────────────────

@@ -104,20 +104,18 @@ const precio = llm.tool({
 });
 
 const endCall = llm.tool({
-    description: 'Cuelga la llamada y cierra la sesión. Llamar ÚNICAMENTE cuando el cliente se haya despedido y la conversación haya terminado completamente.',
+    description: 'OBLIGATORIO al final de CADA llamada. Cuelga la línea telefónica. Debes llamarla SIEMPRE inmediatamente después de decir tu despedida, sin excepción. Si no la llamas, la llamada no se cuelga y el cliente se queda atrapado en la línea.',
     parameters: z.object({}),
     execute: async () => {
         const callId = (globalThis as any).__currentCallId || 'unknown';
         ((globalThis as any).__toolsCalledThisCall ??= []).push('end_call');
-        console.log(`[Call ${callId}] Tool: end_call — esperando fin de despedida`);
-        // Esperar a que el audio de despedida termine antes de disparar el cierre.
-        // Mientras el tool está "ejecutando", Gemini no genera nueva respuesta
-        // ni interrumpe el audio actual.
-        await new Promise(r => setTimeout(r, 5000));
+        console.log(`[Call ${callId}] Tool: end_call — colgado programado`);
         const key = `__triggerEndCall_${callId}`;
         const trigger = (globalThis as any)[key];
         if (typeof trigger === 'function') {
-            trigger();
+            trigger().catch((err: Error) => {
+                console.error(`[Call ${callId}] end_call trigger falló:`, err);
+            });
         } else {
             console.error(`[Call ${callId}] end_call: trigger ${key} no disponible`);
         }
@@ -233,9 +231,11 @@ export default defineAgent({
         });
 
         const triggerKey = `__triggerEndCall_${callId}`;
-        (globalThis as any)[triggerKey] = () => {
+        (globalThis as any)[triggerKey] = async (): Promise<void> => {
             if (callEnding) return;
             callEnding = true;
+            // Esperar a que el audio de despedida termine (~5s) antes de disparar
+            await new Promise(r => setTimeout(r, 5000));
             console.log(`[Call ${callId}] end_call: señal de fin recibida`);
             callEndingResolve();
         };
@@ -378,12 +378,12 @@ export default defineAgent({
 
             const done = roomClosed || sipCallerHungUp || callEnding;
             if (done) {
-                try {
-                    await session.close();
-                    console.log(`[Call ${callId}] Session closed successfully`);
-                } catch (err) {
-                    console.error(`[Call ${callId}] Error closing session:`, err);
-                }
+                const closePromise = session.close().catch(err => {
+                    console.error(`[Call ${callId}] Session close rejected:`, err);
+                });
+                const timeoutPromise = new Promise<void>(r => setTimeout(r, 3000));
+                await Promise.race([closePromise, timeoutPromise]);
+                console.log(`[Call ${callId}] Session close phase completed`);
             }
             return done ? 'done' : 'reconnect';
         };

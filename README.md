@@ -34,3 +34,7 @@ En la configuración de tu número de teléfono:
 Puedes cambiar la personalidad y la voz del agente editando el archivo `.env`:
 - `VOICE_PROMPT`: El sistema de instrucciones para el agente.
 - `VOICE_NAME`: El timbre de voz. Opciones: `Puck`, `Charon`, `Kore`, `Fenrir`, `Aoede`.
+
+## Migración API Proxy (2026-10-18)
+
+Usuario autoriza mantener y migrar el puente activo. LiveKit usa SIP_PROXY_URL/SIP_PROXY_TOKEN con identidad gemini-sip; no recibe la clave de Google. SDK Live y análisis REST pasan por rutas específicas y ledger sin audio, transcripción ni credenciales. Mantener modelo activo gemini-3.8-live, voz y herramientas. La imagen se prepara como overlay mínimo sobre el runtime activo para no publicar cambios locales previos de personalidad/audio. El plan canónico está en PLAN_PROYECTO.md. No se disparan llamadas ni webhooks durante pruebas sintéticas.

@@ -7,6 +7,7 @@
  */
 
 import { GoogleGenAI } from '@google/genai';
+import { sipProxyOptions, sipProxyAvailable } from './proxy-config.js';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -46,9 +47,8 @@ export async function analyzeCall(
     toolsUsed: string[],
     durationSeconds: number
 ): Promise<CallAnalysis | null> {
-    const apiKey = process.env.GOOGLE_API_KEY;
-    if (!apiKey) {
-        console.error('[Analysis] GOOGLE_API_KEY not set');
+    if (!sipProxyAvailable()) {
+        console.error('[Analysis] SIP proxy not configured');
         return null;
     }
 
@@ -58,7 +58,7 @@ export async function analyzeCall(
     }
 
     try {
-        const ai = new GoogleGenAI({ apiKey });
+        const ai = new GoogleGenAI(sipProxyOptions());
         const modelName = process.env.ANALYSIS_MODEL || 'gemini-2.5-flash';
 
         // Format the conversation for analysis

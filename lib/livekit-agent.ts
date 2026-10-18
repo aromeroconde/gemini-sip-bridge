@@ -13,6 +13,7 @@ import {
     voice,
 } from '@livekit/agents';
 import * as google from '@livekit/agents-plugin-google';
+import { sipProxyOptions } from './proxy-config.js';
 import * as silero from '@livekit/agents-plugin-silero';
 import { RoomServiceClient } from 'livekit-server-sdk';
 import { z } from 'zod';
@@ -279,7 +280,8 @@ export default defineAgent({
             model: process.env.GEMINI_MODEL || 'gemini-3.1-flash-live-preview',
             voice: process.env.VOICE_NAME || 'Zephyr',
             instructions: voicePrompt,
-            apiKey: process.env.GOOGLE_API_KEY,
+            ...sipProxyOptions(),
+            apiVersion: 'v1beta',
         });
 
         const agent = new voice.Agent({

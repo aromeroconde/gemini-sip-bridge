@@ -16,7 +16,8 @@ services:
     network_mode: host
     environment:
       NODE_ENV: production
-      GOOGLE_API_KEY: ${GOOGLE_API_KEY}
+      SIP_PROXY_URL: ${SIP_PROXY_URL:-https://api-proxy.smartnexo.com}
+      SIP_PROXY_TOKEN: ${SIP_PROXY_TOKEN}
       GEMINI_MODEL: ${GEMINI_MODEL:-gemini-3.1-flash-live-preview}
       VOICE_NAME: ${VOICE_NAME:-Zephyr}
       VOICE_PROMPT: ${VOICE_PROMPT:-Eres QuantumIA, el consultor de IA de élite. Responde de forma profesional, amable y concisa. Habla siempre en español de Colombia.}

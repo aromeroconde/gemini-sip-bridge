@@ -8,7 +8,7 @@ services:
       GIT_TOKEN: ${GIT_TOKEN}
       SIP_PROXY_URL: ${SIP_PROXY_URL:-https://api-proxy.smartnexo.com}
       SIP_PROXY_TOKEN: ${SIP_PROXY_TOKEN}
-      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-3.1-flash-live-preview}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-3.8-live}
       VOICE_NAME: ${VOICE_NAME:-Zephyr}
       LIVEKIT_URL: ${LIVEKIT_URL}
       LIVEKIT_API_KEY: ${LIVEKIT_API_KEY}

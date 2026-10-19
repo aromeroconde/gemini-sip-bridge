@@ -20,12 +20,12 @@ Swarm gemini-sip-bridge_gemini_bridge activo con clave antigua GOOGLE_API_KEY. I
 
 | ID | Entregable / aceptación | Dependencia | Estado | Prioridad |
 |---|---|---|---|---|
-| SIP-01 | Identidad y relay Live/REST propios, sin clave compartida ni acceso cruzado; ledger | Autorización usuario | en_curso | Solicitada |
-| SIP-02 | Cliente LiveKit y análisis REST por proxy, preservar configuración y cambios previos | SIP-01 | pendiente | P1 |
-| SIP-03 | Pruebas SDK/relay con proveedor simulado, compilación y overlay mínimo verificado | SIP-02 | pendiente | P1 |
-| SIP-04 | Respaldo, activación y registro del worker; prueba sintética sin teléfono ni avisos | SIP-03 | pendiente | P1 |
+| SIP-01 | Identidad y relay Live/REST propios, sin clave compartida ni acceso cruzado; ledger | Autorización usuario | hecha | Solicitada |
+| SIP-02 | Cliente LiveKit y análisis REST por proxy, preservar configuración y cambios previos | SIP-01 | hecha | P1 |
+| SIP-03 | Pruebas SDK/relay con proveedor simulado, compilación y overlay mínimo verificado | SIP-02 | hecha | P1 |
+| SIP-04 | Respaldo, activación y registro del worker; prueba sintética sin teléfono ni avisos | SIP-03 | hecha | P1 |
 
-Hito activo: SIP-01.
+Migración SIP-01–SIP-04 completada; rotación LiveKit pendiente de acceso y decisión.
 
 ## Riesgos y decisiones
 
@@ -37,7 +37,7 @@ Prueba humana de llamada y recepción de reportes; mantenimiento de dependencias
 
 ## Próximo paso
 
-Añadir gemini-sip al proxy con token interno exclusivo y clave nueva ya limitada al VPS; adaptar configuración SDK y análisis, probar y desplegar overlay preservando runtime activo.
+Obtener acceso autorizado a LiveKit Cloud del mismo proyecto, emitir credenciales nuevas, comprobar el worker y retirar las anteriores. Mantener el puente activo.
 
 ## Implementación y pruebas locales — 2026-10-18
 
